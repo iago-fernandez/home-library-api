@@ -54,3 +54,18 @@ pub async fn delete_book(
         }
     }
 }
+
+pub async fn update_book(
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<CreateBookDto>,
+) -> Result<Json<Book>, (StatusCode, String)> {
+    match repository::update_book(&pool, id, payload).await {
+        Ok(Some(book)) => Ok(Json(book)),
+        Ok(None) => Err((StatusCode::NOT_FOUND, "Book not found".to_string())),
+        Err(error) => {
+            let error_message = format!("Failed to update book: {}", error);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, error_message))
+        }
+    }
+}

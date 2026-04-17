@@ -101,3 +101,88 @@ pub async fn delete_book(pool: &PgPool, book_id: Uuid) -> Result<u64, sqlx::Erro
 
     Ok(result.rows_affected())
 }
+
+pub async fn update_book(
+    pool: &PgPool,
+    book_id: Uuid,
+    payload: CreateBookDto,
+) -> Result<Option<Book>, sqlx::Error> {
+    let book = sqlx::query_as::<_, Book>(
+        r#"
+        UPDATE books SET
+            isbn_13 = $1, isbn_10 = $2, open_library_id = $3, oclc_number = $4, title = $5,
+            subtitle = $6, original_title = $7, authors = $8, translators = $9, illustrators = $10,
+            publisher = $11, publish_date = $12, original_publish_date = $13, edition_number = $14,
+            printing_number = $15, original_edition = $16, is_first_edition = $17, collection_name = $18,
+            volume_in_collection = $19, series_name = $20, volume_in_series = $21, book_format = $22,
+            page_count = $23, dimensions = $24, weight = $25, language = $26, original_language = $27,
+            subjects = $28, genres = $29, target_audience = $30, description = $31, table_of_contents = $32,
+            cover_url = $33, purchase_date = $34, purchase_price = $35, store_or_vendor = $36,
+            acquisition_type = $37, location_property = $38, location_room = $39, location_bookcase = $40,
+            location_shelf = $41, location_position = $42, condition_state = $43, personal_notes = $44,
+            read_status = $45, rating = $46, date_started = $47, date_finished = $48, reading_notes = $49,
+            is_loaned = $50, loaned_to = $51, loan_date = $52, expected_return_date = $53,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $54
+        RETURNING *
+        "#
+    )
+        .bind(payload.isbn_13)
+        .bind(payload.isbn_10)
+        .bind(payload.open_library_id)
+        .bind(payload.oclc_number)
+        .bind(payload.title)
+        .bind(payload.subtitle)
+        .bind(payload.original_title)
+        .bind(payload.authors)
+        .bind(payload.translators)
+        .bind(payload.illustrators)
+        .bind(payload.publisher)
+        .bind(payload.publish_date)
+        .bind(payload.original_publish_date)
+        .bind(payload.edition_number)
+        .bind(payload.printing_number)
+        .bind(payload.original_edition)
+        .bind(payload.is_first_edition)
+        .bind(payload.collection_name)
+        .bind(payload.volume_in_collection)
+        .bind(payload.series_name)
+        .bind(payload.volume_in_series)
+        .bind(payload.book_format)
+        .bind(payload.page_count)
+        .bind(payload.dimensions)
+        .bind(payload.weight)
+        .bind(payload.language)
+        .bind(payload.original_language)
+        .bind(payload.subjects)
+        .bind(payload.genres)
+        .bind(payload.target_audience)
+        .bind(payload.description)
+        .bind(payload.table_of_contents)
+        .bind(payload.cover_url)
+        .bind(payload.purchase_date)
+        .bind(payload.purchase_price)
+        .bind(payload.store_or_vendor)
+        .bind(payload.acquisition_type)
+        .bind(payload.location_property)
+        .bind(payload.location_room)
+        .bind(payload.location_bookcase)
+        .bind(payload.location_shelf)
+        .bind(payload.location_position)
+        .bind(payload.condition_state)
+        .bind(payload.personal_notes)
+        .bind(payload.read_status)
+        .bind(payload.rating)
+        .bind(payload.date_started)
+        .bind(payload.date_finished)
+        .bind(payload.reading_notes)
+        .bind(payload.is_loaned)
+        .bind(payload.loaned_to)
+        .bind(payload.loan_date)
+        .bind(payload.expected_return_date)
+        .bind(book_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(book)
+}

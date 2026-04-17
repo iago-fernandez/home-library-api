@@ -28,7 +28,10 @@ async fn main() {
             "/books",
             get(handlers::get_all_books).post(handlers::create_book),
         )
-        .route("/books/{id}", delete(handlers::delete_book))
+        .route(
+            "/books/{id}",
+            delete(handlers::delete_book).put(handlers::update_book),
+        )
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
