@@ -1,5 +1,6 @@
 use crate::models::Book;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub async fn fetch_all_books(pool: &PgPool) -> Result<Vec<Book>, sqlx::Error> {
     let books = sqlx::query_as::<_, Book>("SELECT * FROM books")
@@ -90,4 +91,13 @@ pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, 
     .await?;
 
     Ok(book)
+}
+
+pub async fn delete_book(pool: &PgPool, book_id: Uuid) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM books WHERE id = $1")
+        .bind(book_id)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
 }
