@@ -2,7 +2,10 @@ mod handlers;
 mod models;
 mod repository;
 
-use axum::{routing::get, Router};
+use axum::{
+    routing::{delete, get},
+    Router,
+};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -21,7 +24,14 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/books", get(handlers::get_all_books))
+        .route(
+            "/books",
+            get(handlers::get_all_books).post(handlers::create_book),
+        )
+        .route(
+            "/books/{id}",
+            delete(handlers::delete_book).put(handlers::update_book),
+        )
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
