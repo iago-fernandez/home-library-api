@@ -1,3 +1,7 @@
+mod handlers;
+mod models;
+mod repository;
+
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
@@ -17,6 +21,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        .route("/books", get(handlers::get_all_books))
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
