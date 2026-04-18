@@ -1,8 +1,46 @@
-use crate::models::Book;
-use sqlx::PgPool;
+use crate::models::{Book, BookFilterQuery, CreateBookDto};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
-use crate::models::CreateBookDto;
+pub async fn fetch_books(
+    pool: &PgPool,
+    filters: BookFilterQuery,
+) -> Result<Vec<Book>, sqlx::Error> {
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
+
+    if let Some(search_term) = filters.search {
+        let term = format!("%{}%", search_term);
+        query.push(" AND (title ILIKE ");
+        query.push_bind(term.clone());
+        query.push(" OR original_title ILIKE ");
+        query.push_bind(term);
+        query.push(")");
+    }
+
+    if let Some(status) = filters.read_status {
+        query.push(" AND read_status = ");
+        query.push_bind(status);
+    }
+
+    if let Some(format) = filters.book_format {
+        query.push(" AND book_format = ");
+        query.push_bind(format);
+    }
+
+    query.push(" ORDER BY created_at DESC");
+
+    let limit = filters.limit.unwrap_or(50).clamp(1, 100);
+    query.push(" LIMIT ");
+    query.push_bind(limit);
+
+    let offset = filters.offset.unwrap_or(0).max(0);
+    query.push(" OFFSET ");
+    query.push_bind(offset);
+
+    let books = query.build_query_as::<Book>().fetch_all(pool).await?;
+
+    Ok(books)
+}
 
 pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, sqlx::Error> {
     let book = sqlx::query_as::<_, Book>(
@@ -177,16 +215,4 @@ pub async fn update_book(
         .await?;
 
     Ok(book)
-}
-
-pub async fn fetch_books(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<Book>, sqlx::Error> {
-    let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(books)
 }
