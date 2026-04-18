@@ -2,14 +2,6 @@ use crate::models::Book;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-pub async fn fetch_all_books(pool: &PgPool) -> Result<Vec<Book>, sqlx::Error> {
-    let books = sqlx::query_as::<_, Book>("SELECT * FROM books")
-        .fetch_all(pool)
-        .await?;
-
-    Ok(books)
-}
-
 use crate::models::CreateBookDto;
 
 pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, sqlx::Error> {
@@ -185,4 +177,16 @@ pub async fn update_book(
         .await?;
 
     Ok(book)
+}
+
+pub async fn fetch_books(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<Book>, sqlx::Error> {
+    let books = sqlx::query_as::<_, Book>(
+        "SELECT * FROM books ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(books)
 }

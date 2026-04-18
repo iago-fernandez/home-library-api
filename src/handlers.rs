@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -7,14 +7,18 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
-    models::{Book, CreateBookDto},
+    models::{Book, CreateBookDto, PaginationQuery},
     repository,
 };
 
 pub async fn get_all_books(
     State(pool): State<PgPool>,
+    Query(pagination): Query<PaginationQuery>,
 ) -> Result<Json<Vec<Book>>, (StatusCode, String)> {
-    match repository::fetch_all_books(&pool).await {
+    let limit = pagination.limit.unwrap_or(50).clamp(1, 100);
+    let offset = pagination.offset.unwrap_or(0).max(0);
+
+    match repository::fetch_books(&pool, limit, offset).await {
         Ok(books) => Ok(Json(books)),
         Err(error) => {
             let error_message = format!("Database error: {}", error);
