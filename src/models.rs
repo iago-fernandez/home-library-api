@@ -133,7 +133,10 @@ pub struct CreateBookDto {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PaginationQuery {
+pub struct BookFilterQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub search: Option<String>,
+    pub read_status: Option<String>,
+    pub book_format: Option<String>,
 }
