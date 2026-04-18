@@ -131,3 +131,9 @@ pub struct CreateBookDto {
     pub loan_date: Option<DateTime<Utc>>,
     pub expected_return_date: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct PaginationQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
