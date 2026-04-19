@@ -2,25 +2,23 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Book {
     pub id: Uuid,
     pub catalog_number: i32,
-
     pub isbn_13: Option<String>,
     pub isbn_10: Option<String>,
     pub open_library_id: Option<String>,
     pub oclc_number: Option<String>,
-
     pub title: String,
     pub subtitle: Option<String>,
     pub original_title: Option<String>,
     pub authors: Vec<String>,
     pub translators: Option<Vec<String>>,
     pub illustrators: Option<Vec<String>>,
-
     pub publisher: Option<String>,
     pub publish_date: Option<String>,
     pub original_publish_date: Option<String>,
@@ -32,7 +30,6 @@ pub struct Book {
     pub volume_in_collection: Option<i32>,
     pub series_name: Option<String>,
     pub volume_in_series: Option<i32>,
-
     pub book_format: Option<String>,
     pub page_count: Option<i32>,
     pub dimensions: Option<String>,
@@ -45,32 +42,26 @@ pub struct Book {
     pub description: Option<String>,
     pub table_of_contents: Option<String>,
     pub cover_url: Option<String>,
-
     pub purchase_date: Option<String>,
     pub purchase_price: Option<Decimal>,
     pub store_or_vendor: Option<String>,
     pub acquisition_type: Option<String>,
-
     pub location_property: Option<String>,
     pub location_room: Option<String>,
     pub location_bookcase: Option<String>,
     pub location_shelf: Option<String>,
     pub location_position: Option<i32>,
-
     pub condition_state: Option<String>,
     pub personal_notes: Option<String>,
-
     pub read_status: Option<String>,
     pub rating: Option<i32>,
     pub date_started: Option<String>,
     pub date_finished: Option<String>,
     pub reading_notes: Option<String>,
-
     pub is_loaned: Option<bool>,
     pub loaned_to: Option<String>,
     pub loan_date: Option<DateTime<Utc>>,
     pub expected_return_date: Option<DateTime<Utc>>,
-
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -136,7 +127,8 @@ pub struct CreateBookDto {
 pub struct BookFilterQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub search: Option<String>,
-    pub read_status: Option<String>,
-    pub book_format: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
+    #[serde(flatten)]
+    pub filters: HashMap<String, String>,
 }
