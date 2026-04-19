@@ -4,38 +4,114 @@ use uuid::Uuid;
 
 pub async fn fetch_books(
     pool: &PgPool,
-    filters: BookFilterQuery,
+    query_params: BookFilterQuery,
 ) -> Result<Vec<Book>, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
 
-    if let Some(search_term) = filters.search {
-        let term = format!("%{}%", search_term);
-        query.push(" AND (title ILIKE ");
-        query.push_bind(term.clone());
-        query.push(" OR original_title ILIKE ");
-        query.push_bind(term);
-        query.push(")");
+    let allowed_text_columns = [
+        "title",
+        "subtitle",
+        "original_title",
+        "publisher",
+        "collection_name",
+        "series_name",
+        "description",
+        "personal_notes",
+        "reading_notes",
+    ];
+
+    let allowed_exact_columns = [
+        "read_status",
+        "book_format",
+        "condition_state",
+        "target_audience",
+        "language",
+        "original_language",
+        "store_or_vendor",
+        "acquisition_type",
+        "location_property",
+        "location_room",
+        "location_bookcase",
+        "location_shelf",
+    ];
+
+    for (column, value) in &query_params.filters {
+        if column == "min_pages" {
+            if let Ok(val) = value.parse::<i32>() {
+                query.push(" AND page_count >= ");
+                query.push_bind(val);
+            }
+            continue;
+        }
+
+        if column == "max_pages" {
+            if let Ok(val) = value.parse::<i32>() {
+                query.push(" AND page_count <= ");
+                query.push_bind(val);
+            }
+            continue;
+        }
+
+        if column == "min_rating" {
+            if let Ok(val) = value.parse::<i32>() {
+                query.push(" AND rating >= ");
+                query.push_bind(val);
+            }
+            continue;
+        }
+
+        if column == "search" {
+            let term = format!("%{}%", value);
+            query.push(" AND (title ILIKE ");
+            query.push_bind(term.clone());
+            query.push(" OR original_title ILIKE ");
+            query.push_bind(term);
+            query.push(")");
+            continue;
+        }
+
+        if allowed_text_columns.contains(&column.as_str()) {
+            query.push(format!(" AND {} ILIKE ", column));
+            query.push_bind(format!("%{}%", value));
+        } else if allowed_exact_columns.contains(&column.as_str()) {
+            query.push(format!(" AND {} = ", column));
+            query.push_bind(value);
+        }
     }
 
-    if let Some(status) = filters.read_status {
-        query.push(" AND read_status = ");
-        query.push_bind(status);
-    }
+    let allowed_sort_columns = [
+        "title",
+        "page_count",
+        "rating",
+        "publish_date",
+        "created_at",
+        "updated_at",
+        "purchase_price",
+    ];
 
-    if let Some(format) = filters.book_format {
-        query.push(" AND book_format = ");
-        query.push_bind(format);
-    }
+    let sort_col = query_params
+        .sort_by
+        .unwrap_or_else(|| "created_at".to_string());
 
-    query.push(" ORDER BY created_at DESC");
+    let final_sort_col = if allowed_sort_columns.contains(&sort_col.as_str()) {
+        sort_col
+    } else {
+        "created_at".to_string()
+    };
 
-    let limit = filters.limit.unwrap_or(50).clamp(1, 100);
-    query.push(" LIMIT ");
-    query.push_bind(limit);
+    let order = if query_params.sort_order.as_deref() == Some("asc") {
+        "ASC"
+    } else {
+        "DESC"
+    };
 
-    let offset = filters.offset.unwrap_or(0).max(0);
-    query.push(" OFFSET ");
-    query.push_bind(offset);
+    query.push(format!(" ORDER BY {} {} ", final_sort_col, order));
+
+    let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
+    let offset = query_params.offset.unwrap_or(0).max(0);
+
+    query.push(" LIMIT ").push_bind(limit);
+    query.push(" OFFSET ").push_bind(offset);
 
     let books = query.build_query_as::<Book>().fetch_all(pool).await?;
 
