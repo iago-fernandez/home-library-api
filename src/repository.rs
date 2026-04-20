@@ -110,29 +110,29 @@ pub async fn fetch_books(
                     }
                 }
             }
-        } else if numeric_columns.contains(&col_name) {
-            if let Ok(num_val) = value.parse::<i32>() {
-                match operator {
-                    "gt" => {
-                        query.push(format!(" AND {} > ", col_name));
-                        query.push_bind(num_val);
-                    }
-                    "gte" => {
-                        query.push(format!(" AND {} >= ", col_name));
-                        query.push_bind(num_val);
-                    }
-                    "lt" => {
-                        query.push(format!(" AND {} < ", col_name));
-                        query.push_bind(num_val);
-                    }
-                    "lte" => {
-                        query.push(format!(" AND {} <= ", col_name));
-                        query.push_bind(num_val);
-                    }
-                    _ => {
-                        query.push(format!(" AND {} = ", col_name));
-                        query.push_bind(num_val);
-                    }
+        } else if numeric_columns.contains(&col_name)
+            && let Ok(num_val) = value.parse::<i32>()
+        {
+            match operator {
+                "gt" => {
+                    query.push(format!(" AND {} > ", col_name));
+                    query.push_bind(num_val);
+                }
+                "gte" => {
+                    query.push(format!(" AND {} >= ", col_name));
+                    query.push_bind(num_val);
+                }
+                "lt" => {
+                    query.push(format!(" AND {} < ", col_name));
+                    query.push_bind(num_val);
+                }
+                "lte" => {
+                    query.push(format!(" AND {} <= ", col_name));
+                    query.push_bind(num_val);
+                }
+                _ => {
+                    query.push(format!(" AND {} = ", col_name));
+                    query.push_bind(num_val);
                 }
             }
         }
