@@ -8,7 +8,7 @@ pub async fn fetch_books(
 ) -> Result<Vec<Book>, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
 
-    let allowed_text_columns = [
+    let text_columns = [
         "title",
         "subtitle",
         "original_title",
@@ -20,7 +20,7 @@ pub async fn fetch_books(
         "reading_notes",
     ];
 
-    let allowed_exact_columns = [
+    let exact_string_columns = [
         "read_status",
         "book_format",
         "condition_state",
@@ -35,32 +35,15 @@ pub async fn fetch_books(
         "location_shelf",
     ];
 
-    for (column, value) in &query_params.filters {
-        if column == "min_pages" {
-            if let Ok(val) = value.parse::<i32>() {
-                query.push(" AND page_count >= ");
-                query.push_bind(val);
-            }
-            continue;
-        }
+    let numeric_columns = [
+        "page_count",
+        "rating",
+        "volume_in_collection",
+        "volume_in_series",
+    ];
 
-        if column == "max_pages" {
-            if let Ok(val) = value.parse::<i32>() {
-                query.push(" AND page_count <= ");
-                query.push_bind(val);
-            }
-            continue;
-        }
-
-        if column == "min_rating" {
-            if let Ok(val) = value.parse::<i32>() {
-                query.push(" AND rating >= ");
-                query.push_bind(val);
-            }
-            continue;
-        }
-
-        if column == "search" {
+    for (key, value) in &query_params.filters {
+        if key == "search" {
             let term = format!("%{}%", value);
             query.push(" AND (title ILIKE ");
             query.push_bind(term.clone());
@@ -70,12 +53,88 @@ pub async fn fetch_books(
             continue;
         }
 
-        if allowed_text_columns.contains(&column.as_str()) {
-            query.push(format!(" AND {} ILIKE ", column));
-            query.push_bind(format!("%{}%", value));
-        } else if allowed_exact_columns.contains(&column.as_str()) {
-            query.push(format!(" AND {} = ", column));
-            query.push_bind(value);
+        let mut col_name = key.as_str();
+        let mut operator = "eq";
+
+        let suffixes = [
+            ("_contains", "contains"),
+            ("_starts", "starts"),
+            ("_ends", "ends"),
+            ("_exact", "exact"),
+            ("_gt", "gt"),
+            ("_gte", "gte"),
+            ("_lt", "lt"),
+            ("_lte", "lte"),
+            ("_empty", "empty"),
+        ];
+
+        for (suffix, op) in suffixes.iter() {
+            if key.ends_with(suffix) {
+                col_name = &key[..key.len() - suffix.len()];
+                operator = *op;
+                break;
+            }
+        }
+
+        if text_columns.contains(&col_name) || exact_string_columns.contains(&col_name) {
+            if operator == "empty" {
+                if value == "true" {
+                    query.push(format!(" AND ({} IS NULL OR {} = '') ", col_name, col_name));
+                } else {
+                    query.push(format!(
+                        " AND ({} IS NOT NULL AND {} != '') ",
+                        col_name, col_name
+                    ));
+                }
+            } else {
+                match operator {
+                    "contains" => {
+                        query.push(format!(" AND {} ILIKE ", col_name));
+                        query.push_bind(format!("%{}%", value));
+                    }
+                    "starts" => {
+                        query.push(format!(" AND {} ILIKE ", col_name));
+                        query.push_bind(format!("{}%", value));
+                    }
+                    "ends" => {
+                        query.push(format!(" AND {} ILIKE ", col_name));
+                        query.push_bind(format!("%{}", value));
+                    }
+                    "exact" => {
+                        query.push(format!(" AND {} = ", col_name));
+                        query.push_bind(value);
+                    }
+                    _ => {
+                        query.push(format!(" AND {} ILIKE ", col_name));
+                        query.push_bind(format!("%{}%", value));
+                    }
+                }
+            }
+        } else if numeric_columns.contains(&col_name) {
+            if let Ok(num_val) = value.parse::<i32>() {
+                match operator {
+                    "gt" => {
+                        query.push(format!(" AND {} > ", col_name));
+                        query.push_bind(num_val);
+                    }
+                    "gte" => {
+                        query.push(format!(" AND {} >= ", col_name));
+                        query.push_bind(num_val);
+                    }
+                    "lt" => {
+                        query.push(format!(" AND {} < ", col_name));
+                        query.push_bind(num_val);
+                    }
+                    "lte" => {
+                        query.push(format!(" AND {} <= ", col_name));
+                        query.push_bind(num_val);
+                    }
+                    _ => {
+                        query.push(format!(" AND {} = ", col_name));
+                        query.push_bind(num_val);
+                    }
+                }
+            }
         }
     }
 
