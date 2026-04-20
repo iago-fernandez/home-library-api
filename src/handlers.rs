@@ -1,13 +1,15 @@
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
 };
+use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
-    models::{Book, BookFilterQuery, CreateBookDto},
+    integration,
+    models::{Book, BookFilterQuery, BookMetadataResponse, CreateBookDto},
     repository,
 };
 
@@ -68,5 +70,34 @@ pub async fn update_book(
             let error_message = format!("Failed to update book: {}", error);
             Err((StatusCode::INTERNAL_SERVER_ERROR, error_message))
         }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    pub q: String,
+}
+
+pub async fn lookup_metadata_by_isbn(
+    Path(isbn): Path<String>,
+) -> Result<Json<BookMetadataResponse>, (StatusCode, String)> {
+    match integration::fetch_metadata_by_isbn(&isbn).await {
+        Ok(metadata) => Ok(Json(metadata)),
+        Err(_) => Err((
+            StatusCode::BAD_GATEWAY,
+            "Failed to connect to metadata provider".to_string(),
+        )),
+    }
+}
+
+pub async fn search_metadata(
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Vec<BookMetadataResponse>>, (StatusCode, String)> {
+    match integration::search_metadata_by_query(&query.q).await {
+        Ok(results) => Ok(Json(results)),
+        Err(_) => Err((
+            StatusCode::BAD_GATEWAY,
+            "Failed to connect to metadata provider".to_string(),
+        )),
     }
 }

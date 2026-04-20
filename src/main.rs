@@ -1,10 +1,11 @@
 mod handlers;
+mod integration;
 mod models;
 mod repository;
 
 use axum::{
-    routing::{delete, get},
     Router,
+    routing::{delete, get},
 };
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
@@ -29,9 +30,14 @@ async fn main() {
             get(handlers::get_all_books).post(handlers::create_book),
         )
         .route(
-            "/books/{id}",
+            "/books/:id",
             delete(handlers::delete_book).put(handlers::update_book),
         )
+        .route(
+            "/books/lookup/:isbn",
+            get(handlers::lookup_metadata_by_isbn),
+        )
+        .route("/books/search-metadata", get(handlers::search_metadata))
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

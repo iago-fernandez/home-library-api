@@ -132,3 +132,13 @@ pub struct BookFilterQuery {
     #[serde(flatten)]
     pub filters: HashMap<String, String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BookMetadataResponse {
+    pub isbn: Option<String>,
+    pub title: Option<String>,
+    pub authors: Option<Vec<String>>,
+    pub publish_date: Option<String>,
+    pub page_count: Option<i32>,
+    pub cover_url: Option<String>,
+}
