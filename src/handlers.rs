@@ -9,16 +9,16 @@ use uuid::Uuid;
 
 use crate::{
     integration,
-    models::{Book, BookFilterQuery, BookMetadataResponse, CreateBookDto},
+    models::{Book, BookFilterQuery, BookMetadataResponse, CreateBookDto, PaginatedBooks},
     repository,
 };
 
 pub async fn get_all_books(
     State(pool): State<PgPool>,
     Query(filters): Query<BookFilterQuery>,
-) -> Result<Json<Vec<Book>>, (StatusCode, String)> {
+) -> Result<Json<PaginatedBooks>, (StatusCode, String)> {
     match repository::fetch_books(&pool, filters).await {
-        Ok(books) => Ok(Json(books)),
+        Ok(paginated) => Ok(Json(paginated)),
         Err(error) => {
             let error_message = format!("Database error: {}", error);
             Err((StatusCode::INTERNAL_SERVER_ERROR, error_message))

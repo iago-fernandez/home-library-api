@@ -1,11 +1,11 @@
-use crate::models::{Book, BookFilterQuery, CreateBookDto};
+use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 pub async fn fetch_books(
     pool: &PgPool,
     query_params: BookFilterQuery,
-) -> Result<Vec<Book>, sqlx::Error> {
+) -> Result<PaginatedBooks, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
 
     let text_columns = [
@@ -174,7 +174,14 @@ pub async fn fetch_books(
 
     let books = query.build_query_as::<Book>().fetch_all(pool).await?;
 
-    Ok(books)
+    let total_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM books")
+        .fetch_one(pool)
+        .await?;
+
+    Ok(PaginatedBooks {
+        data: books,
+        total: total_count.0,
+    })
 }
 
 pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, sqlx::Error> {
