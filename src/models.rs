@@ -142,3 +142,9 @@ pub struct BookMetadataResponse {
     pub page_count: Option<i32>,
     pub cover_url: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PaginatedBooks {
+    pub data: Vec<Book>,
+    pub total: i64,
+}
