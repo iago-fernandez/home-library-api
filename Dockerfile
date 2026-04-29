@@ -9,6 +9,7 @@ RUN rm -f target/release/deps/home_library_api*
 
 COPY src ./src
 COPY .env ./
+COPY migrations ./migrations
 RUN cargo build --release
 
 FROM debian:bookworm-slim
