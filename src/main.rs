@@ -34,6 +34,12 @@ async fn main() {
         .await
         .expect("Failed to connect to Postgres");
 
+    tracing::info!("Running database migrations");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run database migrations");
+
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
