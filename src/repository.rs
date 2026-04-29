@@ -1,4 +1,4 @@
-use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks};
+use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST};
 use sqlx::{PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
@@ -8,141 +8,11 @@ pub async fn fetch_books(
 ) -> Result<PaginatedBooks, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
 
-    let text_columns = [
-        "title",
-        "subtitle",
-        "original_title",
-        "publisher",
-        "collection_name",
-        "series_name",
-        "description",
-        "personal_notes",
-        "reading_notes",
-        "location_property",
-        "location_room",
-        "location_bookcase",
-        "location_shelf",
-    ];
-
-    let exact_string_columns = [
-        "read_status",
-        "book_format",
-        "condition_state",
-        "target_audience",
-        "language",
-        "original_language",
-        "store_or_vendor",
-        "acquisition_type",
-        "isbn_13",
-        "isbn_10",
-    ];
-
-    let numeric_columns = [
-        "page_count",
-        "rating",
-        "volume_in_collection",
-        "volume_in_series",
-    ];
-
-    for (key, value) in &query_params.filters {
-        if key == "search" {
-            let term = format!("%{}%", value);
-            query.push(" AND (title ILIKE ");
-            query.push_bind(term.clone());
-            query.push(" OR original_title ILIKE ");
-            query.push_bind(term);
+    if let Some(query_str) = &query_params.query {
+        if let Ok(ast) = serde_json::from_str::<QueryAST>(query_str) {
+            query.push(" AND (");
+            build_query_recursive(&ast, &mut query);
             query.push(")");
-            continue;
-        }
-
-        if key == "author" || key == "authors" {
-            query.push(" AND array_to_string(authors, ', ') ILIKE ");
-            query.push_bind(format!("%{}%", value));
-            continue;
-        }
-
-        let mut col_name = key.as_str();
-        let mut operator = "eq";
-
-        let suffixes = [
-            ("_contains", "contains"),
-            ("_starts", "starts"),
-            ("_ends", "ends"),
-            ("_exact", "exact"),
-            ("_gt", "gt"),
-            ("_gte", "gte"),
-            ("_lt", "lt"),
-            ("_lte", "lte"),
-            ("_empty", "empty"),
-        ];
-
-        for (suffix, op) in suffixes.iter() {
-            if key.ends_with(suffix) {
-                col_name = &key[..key.len() - suffix.len()];
-                operator = *op;
-                break;
-            }
-        }
-
-        if text_columns.contains(&col_name) || exact_string_columns.contains(&col_name) {
-            if operator == "empty" {
-                if value == "true" {
-                    query.push(format!(" AND ({} IS NULL OR {} = '') ", col_name, col_name));
-                } else {
-                    query.push(format!(
-                        " AND ({} IS NOT NULL AND {} != '') ",
-                        col_name, col_name
-                    ));
-                }
-            } else {
-                match operator {
-                    "contains" => {
-                        query.push(format!(" AND {} ILIKE ", col_name));
-                        query.push_bind(format!("%{}%", value));
-                    }
-                    "starts" => {
-                        query.push(format!(" AND {} ILIKE ", col_name));
-                        query.push_bind(format!("{}%", value));
-                    }
-                    "ends" => {
-                        query.push(format!(" AND {} ILIKE ", col_name));
-                        query.push_bind(format!("%{}", value));
-                    }
-                    "exact" => {
-                        query.push(format!(" AND {} = ", col_name));
-                        query.push_bind(value);
-                    }
-                    _ => {
-                        query.push(format!(" AND {} ILIKE ", col_name));
-                        query.push_bind(format!("%{}%", value));
-                    }
-                }
-            }
-        } else if numeric_columns.contains(&col_name)
-            && let Ok(num_val) = value.parse::<i32>()
-        {
-            match operator {
-                "gt" => {
-                    query.push(format!(" AND {} > ", col_name));
-                    query.push_bind(num_val);
-                }
-                "gte" => {
-                    query.push(format!(" AND {} >= ", col_name));
-                    query.push_bind(num_val);
-                }
-                "lt" => {
-                    query.push(format!(" AND {} < ", col_name));
-                    query.push_bind(num_val);
-                }
-                "lte" => {
-                    query.push(format!(" AND {} <= ", col_name));
-                    query.push_bind(num_val);
-                }
-                _ => {
-                    query.push(format!(" AND {} = ", col_name));
-                    query.push_bind(num_val);
-                }
-            }
         }
     }
 
@@ -195,6 +65,162 @@ pub async fn fetch_books(
         data: books,
         total: total_count.0,
     })
+}
+
+fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
+    match ast {
+        QueryAST::Condition { field, operator, value } => {
+            apply_condition(field, operator, value, query);
+        }
+        QueryAST::And { nodes } => {
+            query.push("(");
+            for (i, node) in nodes.iter().enumerate() {
+                if i > 0 {
+                    query.push(" AND ");
+                }
+                build_query_recursive(node, query);
+            }
+            query.push(")");
+        }
+        QueryAST::Or { nodes } => {
+            query.push("(");
+            for (i, node) in nodes.iter().enumerate() {
+                if i > 0 {
+                    query.push(" OR ");
+                }
+                build_query_recursive(node, query);
+            }
+            query.push(")");
+        }
+        QueryAST::Not { node } => {
+            query.push("NOT (");
+            build_query_recursive(node, query);
+            query.push(")");
+        }
+    }
+}
+
+fn apply_condition(field: &str, operator: &str, value: &str, query: &mut QueryBuilder<Postgres>) {
+    let text_columns = [
+        "title", "subtitle", "original_title", "publisher", "collection_name", "series_name",
+        "description", "personal_notes", "reading_notes", "location_property", "location_room",
+        "location_bookcase", "location_shelf",
+    ];
+
+    let exact_string_columns = [
+        "read_status", "book_format", "condition_state", "target_audience", "language",
+        "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10",
+    ];
+
+    let numeric_columns = ["page_count", "rating", "volume_in_collection", "volume_in_series"];
+
+    let date_columns = [
+        "publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished",
+    ];
+
+    if field == "search" {
+        let term = format!("%{}%", value);
+        query.push(" (title ILIKE ");
+        query.push_bind(term.clone());
+        query.push(" OR original_title ILIKE ");
+        query.push_bind(term);
+        query.push(") ");
+        return;
+    }
+
+    if field == "author" || field == "authors" {
+        query.push(" array_to_string(authors, ', ') ILIKE ");
+        query.push_bind(format!("%{}%", value));
+        return;
+    }
+
+    if text_columns.contains(&field) || exact_string_columns.contains(&field) {
+        match operator {
+            "_contains" => {
+                query.push(format!(" {} ILIKE ", field));
+                query.push_bind(format!("%{}%", value));
+            }
+            "_starts" => {
+                query.push(format!(" {} ILIKE ", field));
+                query.push_bind(format!("{}%", value));
+            }
+            "_ends" => {
+                query.push(format!(" {} ILIKE ", field));
+                query.push_bind(format!("%{}", value));
+            }
+            "_exact" => {
+                query.push(format!(" {} = ", field));
+                query.push_bind(value.to_string());
+            }
+            "_empty" => {
+                if value == "true" {
+                    query.push(format!(" ({} IS NULL OR {} = '') ", field, field));
+                } else {
+                    query.push(format!(" ({} IS NOT NULL AND {} != '') ", field, field));
+                }
+            }
+            _ => {
+                query.push(format!(" {} ILIKE ", field));
+                query.push_bind(format!("%{}%", value));
+            }
+        }
+    } else if numeric_columns.contains(&field) {
+        if let Ok(num_val) = value.parse::<i32>() {
+            match operator {
+                "_gt" => {
+                    query.push(format!(" {} > ", field));
+                    query.push_bind(num_val);
+                }
+                "_gte" => {
+                    query.push(format!(" {} >= ", field));
+                    query.push_bind(num_val);
+                }
+                "_lt" => {
+                    query.push(format!(" {} < ", field));
+                    query.push_bind(num_val);
+                }
+                "_lte" => {
+                    query.push(format!(" {} <= ", field));
+                    query.push_bind(num_val);
+                }
+                _ => {
+                    query.push(format!(" {} = ", field));
+                    query.push_bind(num_val);
+                }
+            }
+        } else {
+            query.push(" 1=0 ");
+        }
+    } else if date_columns.contains(&field) {
+        if let Ok(date_val) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+            match operator {
+                "_gt" => {
+                    query.push(format!(" {} > ", field));
+                    query.push_bind(date_val);
+                }
+                "_gte" => {
+                    query.push(format!(" {} >= ", field));
+                    query.push_bind(date_val);
+                }
+                "_lt" => {
+                    query.push(format!(" {} < ", field));
+                    query.push_bind(date_val);
+                }
+                "_lte" => {
+                    query.push(format!(" {} <= ", field));
+                    query.push_bind(date_val);
+                }
+                _ => {
+                    query.push(format!(" {} = ", field));
+                    query.push_bind(date_val);
+                }
+            }
+        } else {
+            query.push(" 1=0 ");
+        }
+    } else {
+        query.push(" 1=1 ");
+    }
 }
 
 pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, sqlx::Error> {
