@@ -140,12 +140,24 @@ fn apply_condition(field: &str, operator: &str, value: &str, query: &mut QueryBu
                 query.push(format!(" {} ILIKE ", field));
                 query.push_bind(format!("%{}%", value));
             }
+            "_contains_case" => {
+                query.push(format!(" {} LIKE ", field));
+                query.push_bind(format!("%{}%", value));
+            }
             "_starts" => {
                 query.push(format!(" {} ILIKE ", field));
                 query.push_bind(format!("{}%", value));
             }
+            "_starts_case" => {
+                query.push(format!(" {} LIKE ", field));
+                query.push_bind(format!("{}%", value));
+            }
             "_ends" => {
                 query.push(format!(" {} ILIKE ", field));
+                query.push_bind(format!("%{}", value));
+            }
+            "_ends_case" => {
+                query.push(format!(" {} LIKE ", field));
                 query.push_bind(format!("%{}", value));
             }
             "_exact" => {
