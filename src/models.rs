@@ -1,8 +1,7 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -20,8 +19,8 @@ pub struct Book {
     pub translators: Option<Vec<String>>,
     pub illustrators: Option<Vec<String>>,
     pub publisher: Option<String>,
-    pub publish_date: Option<String>,
-    pub original_publish_date: Option<String>,
+    pub publish_date: Option<NaiveDate>,
+    pub original_publish_date: Option<NaiveDate>,
     pub edition_number: Option<String>,
     pub printing_number: Option<String>,
     pub original_edition: Option<String>,
@@ -42,7 +41,7 @@ pub struct Book {
     pub description: Option<String>,
     pub table_of_contents: Option<String>,
     pub cover_url: Option<String>,
-    pub purchase_date: Option<String>,
+    pub purchase_date: Option<NaiveDate>,
     pub purchase_price: Option<Decimal>,
     pub store_or_vendor: Option<String>,
     pub acquisition_type: Option<String>,
@@ -55,8 +54,8 @@ pub struct Book {
     pub personal_notes: Option<String>,
     pub read_status: Option<String>,
     pub rating: Option<i32>,
-    pub date_started: Option<String>,
-    pub date_finished: Option<String>,
+    pub date_started: Option<NaiveDate>,
+    pub date_finished: Option<NaiveDate>,
     pub reading_notes: Option<String>,
     pub is_loaned: Option<bool>,
     pub loaned_to: Option<String>,
@@ -79,8 +78,8 @@ pub struct CreateBookDto {
     pub translators: Option<Vec<String>>,
     pub illustrators: Option<Vec<String>>,
     pub publisher: Option<String>,
-    pub publish_date: Option<String>,
-    pub original_publish_date: Option<String>,
+    pub publish_date: Option<NaiveDate>,
+    pub original_publish_date: Option<NaiveDate>,
     pub edition_number: Option<String>,
     pub printing_number: Option<String>,
     pub original_edition: Option<String>,
@@ -101,7 +100,7 @@ pub struct CreateBookDto {
     pub description: Option<String>,
     pub table_of_contents: Option<String>,
     pub cover_url: Option<String>,
-    pub purchase_date: Option<String>,
+    pub purchase_date: Option<NaiveDate>,
     pub purchase_price: Option<Decimal>,
     pub store_or_vendor: Option<String>,
     pub acquisition_type: Option<String>,
@@ -114,8 +113,8 @@ pub struct CreateBookDto {
     pub personal_notes: Option<String>,
     pub read_status: Option<String>,
     pub rating: Option<i32>,
-    pub date_started: Option<String>,
-    pub date_finished: Option<String>,
+    pub date_started: Option<NaiveDate>,
+    pub date_finished: Option<NaiveDate>,
     pub reading_notes: Option<String>,
     pub is_loaned: Option<bool>,
     pub loaned_to: Option<String>,
@@ -124,13 +123,31 @@ pub struct CreateBookDto {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QueryAST {
+    Condition {
+        field: String,
+        operator: String,
+        value: String,
+    },
+    And {
+        nodes: Vec<QueryAST>,
+    },
+    Or {
+        nodes: Vec<QueryAST>,
+    },
+    Not {
+        node: Box<QueryAST>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
 pub struct BookFilterQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
-    #[serde(flatten)]
-    pub filters: HashMap<String, String>,
+    pub query: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
