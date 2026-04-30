@@ -7,12 +7,17 @@ pub async fn fetch_books(
     query_params: BookFilterQuery,
 ) -> Result<PaginatedBooks, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
+    let mut count_query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT COUNT(*) FROM books WHERE 1=1");
 
     if let Some(query_str) = &query_params.query {
         if let Ok(ast) = serde_json::from_str::<QueryAST>(query_str) {
             query.push(" AND (");
             build_query_recursive(&ast, &mut query);
             query.push(")");
+
+            count_query.push(" AND (");
+            build_query_recursive(&ast, &mut count_query);
+            count_query.push(")");
         }
     }
 
@@ -57,9 +62,7 @@ pub async fn fetch_books(
 
     let books = query.build_query_as::<Book>().fetch_all(pool).await?;
 
-    let total_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM books")
-        .fetch_one(pool)
-        .await?;
+    let total_count: (i64,) = count_query.build_query_as().fetch_one(pool).await?;
 
     Ok(PaginatedBooks {
         data: books,
