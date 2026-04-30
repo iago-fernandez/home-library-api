@@ -101,3 +101,22 @@ pub async fn search_metadata(
         )),
     }
 }
+
+pub async fn delete_books_batch(
+    State(pool): State<PgPool>,
+    Json(payload): Json<crate::models::BatchDeleteRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match repository::delete_books_batch(&pool, payload.ids).await {
+        Ok(rows_affected) => {
+            if rows_affected > 0 {
+                Ok(StatusCode::NO_CONTENT)
+            } else {
+                Err((StatusCode::NOT_FOUND, "No books found to delete".to_string()))
+            }
+        }
+        Err(error) => {
+            let error_message = format!("Failed to delete books in batch: {}", error);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, error_message))
+        }
+    }
+}

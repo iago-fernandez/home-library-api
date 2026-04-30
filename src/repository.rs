@@ -412,3 +412,12 @@ pub async fn update_book(
 
     Ok(book)
 }
+
+pub async fn delete_books_batch(pool: &PgPool, book_ids: Vec<Uuid>) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM books WHERE id = ANY($1)")
+        .bind(book_ids)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}

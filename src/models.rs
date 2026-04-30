@@ -165,3 +165,8 @@ pub struct PaginatedBooks {
     pub data: Vec<Book>,
     pub total: i64,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct BatchDeleteRequest {
+    pub ids: Vec<Uuid>,
+}
