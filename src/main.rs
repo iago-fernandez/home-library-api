@@ -52,6 +52,10 @@ async fn main() {
             get(handlers::get_all_books).post(handlers::create_book),
         )
         .route(
+            "/books/batch",
+            delete(handlers::delete_books_batch),
+        )
+        .route(
             "/books/{id}",
             delete(handlers::delete_book).put(handlers::update_book),
         )
