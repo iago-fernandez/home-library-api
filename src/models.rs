@@ -158,6 +158,13 @@ pub struct BookMetadataResponse {
     pub publish_date: Option<String>,
     pub page_count: Option<i32>,
     pub cover_url: Option<String>,
+    pub subtitle: Option<String>,
+    pub publishers: Option<Vec<String>>,
+    pub physical_format: Option<String>,
+    pub weight: Option<String>,
+    pub dimensions: Option<String>,
+    pub subjects: Option<Vec<String>>,
+    pub languages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
