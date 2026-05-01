@@ -1,18 +1,31 @@
 use crate::models::BookMetadataResponse;
 use serde_json::Value;
 
-pub async fn fetch_metadata_by_isbn(isbn: &str) -> Result<BookMetadataResponse, reqwest::Error> {
+pub async fn fetch_metadata_by_isbn(identifier: &str) -> Result<BookMetadataResponse, reqwest::Error> {
+    let clean_id = identifier.replace("-", "").replace(" ", "");
+
+    let bibkey = if clean_id.starts_with("OL") {
+        format!("OLID:{}", clean_id)
+    } else if clean_id.to_lowercase().starts_with("oclc") {
+        let numeric_oclc = clean_id.to_lowercase().replace("oclc", "");
+        format!("OCLC:{}", numeric_oclc)
+    } else if clean_id.len() == 10 || clean_id.len() == 13 {
+        format!("ISBN:{}", clean_id)
+    } else {
+        format!("OCLC:{}", clean_id)
+    };
+
     let url = format!(
-        "https://openlibrary.org/api/books?bibkeys=ISBN:{}&format=json&jscmd=data",
-        isbn
+        "https://openlibrary.org/api/books?bibkeys={}&format=json&jscmd=data",
+        bibkey
     );
+
     let response = reqwest::get(&url).await?;
     let raw_data: Value = response.json().await?;
-    let bibkey = format!("ISBN:{}", isbn);
 
     if raw_data.get(&bibkey).is_none() {
         return Ok(BookMetadataResponse {
-            isbn: Some(isbn.to_string()),
+            isbn: Some(identifier.to_string()),
             title: None,
             authors: None,
             publish_date: None,
@@ -72,7 +85,7 @@ pub async fn fetch_metadata_by_isbn(isbn: &str) -> Result<BookMetadataResponse, 
     let languages = if languages_list.is_empty() { None } else { Some(languages_list) };
 
     Ok(BookMetadataResponse {
-        isbn: Some(isbn.to_string()),
+        isbn: Some(identifier.to_string()),
         title,
         authors,
         publish_date,
