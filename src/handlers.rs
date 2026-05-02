@@ -78,10 +78,10 @@ pub struct SearchQuery {
     pub q: String,
 }
 
-pub async fn lookup_metadata_by_isbn(
-    Path(isbn): Path<String>,
+pub async fn lookup_metadata(
+    Path(identifier): Path<String>,
 ) -> Result<Json<BookMetadataResponse>, (StatusCode, String)> {
-    match integration::fetch_metadata_by_isbn(&isbn).await {
+    match integration::fetch_metadata(&identifier).await {
         Ok(metadata) => Ok(Json(metadata)),
         Err(_) => Err((
             StatusCode::BAD_GATEWAY,

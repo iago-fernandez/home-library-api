@@ -1,13 +1,13 @@
 use crate::models::BookMetadataResponse;
 use serde_json::Value;
 
-pub async fn fetch_metadata_by_isbn(identifier: &str) -> Result<BookMetadataResponse, reqwest::Error> {
-    let clean_id = identifier.replace("-", "").replace(" ", "");
+pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, reqwest::Error> {
+    let clean_id = identifier.replace("-", "").replace(" ", "").to_uppercase();
 
     let bibkey = if clean_id.starts_with("OL") {
         format!("OLID:{}", clean_id)
-    } else if clean_id.to_lowercase().starts_with("oclc") {
-        let numeric_oclc = clean_id.to_lowercase().replace("oclc", "");
+    } else if clean_id.starts_with("OCLC") {
+        let numeric_oclc = clean_id.replace("OCLC", "");
         format!("OCLC:{}", numeric_oclc)
     } else if clean_id.len() == 10 || clean_id.len() == 13 {
         format!("ISBN:{}", clean_id)
@@ -23,25 +23,26 @@ pub async fn fetch_metadata_by_isbn(identifier: &str) -> Result<BookMetadataResp
     let response = reqwest::get(&url).await?;
     let raw_data: Value = response.json().await?;
 
-    if raw_data.get(&bibkey).is_none() {
-        return Ok(BookMetadataResponse {
-            isbn: Some(identifier.to_string()),
-            title: None,
-            authors: None,
-            publish_date: None,
-            page_count: None,
-            cover_url: None,
-            subtitle: None,
-            publishers: None,
-            physical_format: None,
-            weight: None,
-            dimensions: None,
-            subjects: None,
-            languages: None,
-        });
-    }
-
-    let book_data = &raw_data[&bibkey];
+    let book_data = match raw_data.as_object().and_then(|obj| obj.values().next()) {
+        Some(data) => data,
+        None => {
+            return Ok(BookMetadataResponse {
+                isbn: Some(identifier.to_string()),
+                title: None,
+                authors: None,
+                publish_date: None,
+                page_count: None,
+                cover_url: None,
+                subtitle: None,
+                publishers: None,
+                physical_format: None,
+                weight: None,
+                dimensions: None,
+                subjects: None,
+                languages: None,
+            });
+        }
+    };
 
     let title = book_data.get("title").and_then(|t| t.as_str()).map(String::from);
     let subtitle = book_data.get("subtitle").and_then(|s| s.as_str()).map(String::from);

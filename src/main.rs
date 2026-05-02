@@ -60,8 +60,8 @@ async fn main() {
             delete(handlers::delete_book).put(handlers::update_book),
         )
         .route(
-            "/books/lookup/{isbn}",
-            get(handlers::lookup_metadata_by_isbn),
+            "/books/lookup/{identifier}",
+            get(handlers::lookup_metadata),
         )
         .route("/books/search-metadata", get(handlers::search_metadata))
         .layer(TraceLayer::new_for_http())
