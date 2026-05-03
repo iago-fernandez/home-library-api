@@ -22,6 +22,7 @@ pub async fn fetch_books(
     }
 
     let allowed_sort_columns = [
+        "catalog_number",
         "title",
         "page_count",
         "rating",
@@ -52,7 +53,7 @@ pub async fn fetch_books(
         "DESC"
     };
 
-    query.push(format!(" ORDER BY {} {} ", final_sort_col, order));
+    query.push(format!(" ORDER BY {} {}, id ASC ", final_sort_col, order));
 
     let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
     let offset = query_params.offset.unwrap_or(0).max(0);
