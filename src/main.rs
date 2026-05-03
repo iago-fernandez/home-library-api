@@ -6,12 +6,12 @@ mod repository;
 use axum::{
     Router,
     http::Method,
-    routing::{delete, get},
+    routing::{delete, get, post},
 };
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -40,6 +40,10 @@ async fn main() {
         .await
         .expect("Failed to run database migrations");
 
+    std::fs::create_dir_all("uploads").unwrap_or_else(|e| {
+        tracing::error!("Failed to create uploads directory: {}", e);
+    });
+
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -51,19 +55,15 @@ async fn main() {
             "/books",
             get(handlers::get_all_books).post(handlers::create_book),
         )
-        .route(
-            "/books/batch",
-            delete(handlers::delete_books_batch),
-        )
+        .route("/books/batch", delete(handlers::delete_books_batch))
         .route(
             "/books/{id}",
             delete(handlers::delete_book).put(handlers::update_book),
         )
-        .route(
-            "/books/lookup/{identifier}",
-            get(handlers::lookup_metadata),
-        )
+        .route("/books/lookup/{identifier}", get(handlers::lookup_metadata))
         .route("/books/search-metadata", get(handlers::search_metadata))
+        .route("/books/upload-cover", post(handlers::upload_cover))
+        .nest_service("/static", ServeDir::new("uploads"))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(pool);

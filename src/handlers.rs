@@ -1,10 +1,12 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
@@ -119,4 +121,58 @@ pub async fn delete_books_batch(
             Err((StatusCode::INTERNAL_SERVER_ERROR, error_message))
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct UploadResponse {
+    pub url: String,
+}
+
+pub async fn upload_cover(
+    mut multipart: Multipart,
+) -> Result<Json<UploadResponse>, (StatusCode, String)> {
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Error processing multipart: {}", e),
+        )
+    })? {
+        if field.name() == Some("cover") {
+            let file_uuid = Uuid::new_v4();
+            let file_ext = "jpg";
+            let file_name = format!("{}.{}", file_uuid, file_ext);
+            let file_path = format!("uploads/{}", file_name);
+
+            let data = field.bytes().await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to read file data: {}", e),
+                )
+            })?;
+
+            if data.len() > 5 * 1024 * 1024 {
+                return Err((StatusCode::PAYLOAD_TOO_LARGE, "File too large. Limit is 5MB".to_string()));
+            }
+
+            let mut file = File::create(&file_path).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to create file: {}", e),
+                )
+            })?;
+
+            file.write_all(&data).await.map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to write file: {}", e),
+                )
+            })?;
+
+            let url = format!("/static/{}", file_name);
+
+            return Ok(Json(UploadResponse { url }));
+        }
+    }
+
+    Err((StatusCode::BAD_REQUEST, "No cover field found in multipart form".to_string()))
 }
