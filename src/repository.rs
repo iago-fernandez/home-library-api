@@ -7,7 +7,8 @@ pub async fn fetch_books(
     query_params: BookFilterQuery,
 ) -> Result<PaginatedBooks, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
-    let mut count_query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT COUNT(*) FROM books WHERE 1=1");
+    let mut count_query: QueryBuilder<Postgres> =
+        QueryBuilder::new("SELECT COUNT(*) FROM books WHERE 1=1");
 
     if let Some(query_str) = &query_params.query {
         if let Ok(ast) = serde_json::from_str::<QueryAST>(query_str) {
@@ -73,7 +74,11 @@ pub async fn fetch_books(
 
 fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
     match ast {
-        QueryAST::Condition { field, operator, value } => {
+        QueryAST::Condition {
+            field,
+            operator,
+            value,
+        } => {
             apply_condition(field, operator, value, query);
         }
         QueryAST::And { nodes } => {
@@ -106,20 +111,47 @@ fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
 
 fn apply_condition(field: &str, operator: &str, value: &str, query: &mut QueryBuilder<Postgres>) {
     let text_columns = [
-        "title", "subtitle", "original_title", "publisher", "collection_name", "series_name",
-        "description", "personal_notes", "reading_notes", "location_property", "location_room",
-        "location_bookcase", "location_shelf",
+        "title",
+        "subtitle",
+        "original_title",
+        "publisher",
+        "collection_name",
+        "series_name",
+        "description",
+        "personal_notes",
+        "reading_notes",
+        "location_property",
+        "location_room",
+        "location_bookcase",
+        "location_shelf",
     ];
 
     let exact_string_columns = [
-        "read_status", "book_format", "condition_state", "target_audience", "language",
-        "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10",
+        "read_status",
+        "book_format",
+        "condition_state",
+        "target_audience",
+        "language",
+        "original_language",
+        "store_or_vendor",
+        "acquisition_type",
+        "isbn_13",
+        "isbn_10",
     ];
 
-    let numeric_columns = ["page_count", "rating", "volume_in_collection", "volume_in_series"];
+    let numeric_columns = [
+        "page_count",
+        "rating",
+        "volume_in_collection",
+        "volume_in_series",
+    ];
 
     let date_columns = [
-        "publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished",
+        "publish_date",
+        "original_publish_date",
+        "purchase_date",
+        "date_started",
+        "date_finished",
     ];
 
     if field == "search" {
@@ -261,61 +293,61 @@ pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, 
         RETURNING *
         "#,
     )
-        .bind(payload.isbn_13)
-        .bind(payload.isbn_10)
-        .bind(payload.open_library_id)
-        .bind(payload.oclc_number)
-        .bind(payload.title)
-        .bind(payload.subtitle)
-        .bind(payload.original_title)
-        .bind(payload.authors)
-        .bind(payload.translators)
-        .bind(payload.illustrators)
-        .bind(payload.publisher)
-        .bind(payload.publish_date)
-        .bind(payload.original_publish_date)
-        .bind(payload.edition_number)
-        .bind(payload.printing_number)
-        .bind(payload.original_edition)
-        .bind(payload.is_first_edition)
-        .bind(payload.collection_name)
-        .bind(payload.volume_in_collection)
-        .bind(payload.series_name)
-        .bind(payload.volume_in_series)
-        .bind(payload.book_format)
-        .bind(payload.page_count)
-        .bind(payload.dimensions)
-        .bind(payload.weight)
-        .bind(payload.language)
-        .bind(payload.original_language)
-        .bind(payload.subjects)
-        .bind(payload.genres)
-        .bind(payload.target_audience)
-        .bind(payload.description)
-        .bind(payload.table_of_contents)
-        .bind(payload.cover_url)
-        .bind(payload.purchase_date)
-        .bind(payload.purchase_price)
-        .bind(payload.store_or_vendor)
-        .bind(payload.acquisition_type)
-        .bind(payload.location_property)
-        .bind(payload.location_room)
-        .bind(payload.location_bookcase)
-        .bind(payload.location_shelf)
-        .bind(payload.location_position)
-        .bind(payload.condition_state)
-        .bind(payload.personal_notes)
-        .bind(payload.read_status)
-        .bind(payload.rating)
-        .bind(payload.date_started)
-        .bind(payload.date_finished)
-        .bind(payload.reading_notes)
-        .bind(payload.is_loaned)
-        .bind(payload.loaned_to)
-        .bind(payload.loan_date)
-        .bind(payload.expected_return_date)
-        .fetch_one(pool)
-        .await?;
+    .bind(payload.isbn_13)
+    .bind(payload.isbn_10)
+    .bind(payload.open_library_id)
+    .bind(payload.oclc_number)
+    .bind(payload.title)
+    .bind(payload.subtitle)
+    .bind(payload.original_title)
+    .bind(payload.authors)
+    .bind(payload.translators)
+    .bind(payload.illustrators)
+    .bind(payload.publisher)
+    .bind(payload.publish_date)
+    .bind(payload.original_publish_date)
+    .bind(payload.edition_number)
+    .bind(payload.printing_number)
+    .bind(payload.original_edition)
+    .bind(payload.is_first_edition)
+    .bind(payload.collection_name)
+    .bind(payload.volume_in_collection)
+    .bind(payload.series_name)
+    .bind(payload.volume_in_series)
+    .bind(payload.book_format)
+    .bind(payload.page_count)
+    .bind(payload.dimensions)
+    .bind(payload.weight)
+    .bind(payload.language)
+    .bind(payload.original_language)
+    .bind(payload.subjects)
+    .bind(payload.genres)
+    .bind(payload.target_audience)
+    .bind(payload.description)
+    .bind(payload.table_of_contents)
+    .bind(payload.cover_url)
+    .bind(payload.purchase_date)
+    .bind(payload.purchase_price)
+    .bind(payload.store_or_vendor)
+    .bind(payload.acquisition_type)
+    .bind(payload.location_property)
+    .bind(payload.location_room)
+    .bind(payload.location_bookcase)
+    .bind(payload.location_shelf)
+    .bind(payload.location_position)
+    .bind(payload.condition_state)
+    .bind(payload.personal_notes)
+    .bind(payload.read_status)
+    .bind(payload.rating)
+    .bind(payload.date_started)
+    .bind(payload.date_finished)
+    .bind(payload.reading_notes)
+    .bind(payload.is_loaned)
+    .bind(payload.loaned_to)
+    .bind(payload.loan_date)
+    .bind(payload.expected_return_date)
+    .fetch_one(pool)
+    .await?;
 
     Ok(book)
 }

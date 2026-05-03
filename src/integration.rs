@@ -44,13 +44,34 @@ pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, re
         }
     };
 
-    let title = book_data.get("title").and_then(|t| t.as_str()).map(String::from);
-    let subtitle = book_data.get("subtitle").and_then(|s| s.as_str()).map(String::from);
-    let publish_date = book_data.get("publish_date").and_then(|d| d.as_str()).map(String::from);
-    let page_count = book_data.get("number_of_pages").and_then(|p| p.as_i64()).map(|p| p as i32);
-    let physical_format = book_data.get("physical_format").and_then(|f| f.as_str()).map(String::from);
-    let weight = book_data.get("weight").and_then(|w| w.as_str()).map(String::from);
-    let dimensions = book_data.get("physical_dimensions").and_then(|d| d.as_str()).map(String::from);
+    let title = book_data
+        .get("title")
+        .and_then(|t| t.as_str())
+        .map(String::from);
+    let subtitle = book_data
+        .get("subtitle")
+        .and_then(|s| s.as_str())
+        .map(String::from);
+    let publish_date = book_data
+        .get("publish_date")
+        .and_then(|d| d.as_str())
+        .map(String::from);
+    let page_count = book_data
+        .get("number_of_pages")
+        .and_then(|p| p.as_i64())
+        .map(|p| p as i32);
+    let physical_format = book_data
+        .get("physical_format")
+        .and_then(|f| f.as_str())
+        .map(String::from);
+    let weight = book_data
+        .get("weight")
+        .and_then(|w| w.as_str())
+        .map(String::from);
+    let dimensions = book_data
+        .get("physical_dimensions")
+        .and_then(|d| d.as_str())
+        .map(String::from);
 
     let cover_url = book_data
         .get("cover")
@@ -83,7 +104,11 @@ pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, re
             }
         }
     }
-    let languages = if languages_list.is_empty() { None } else { Some(languages_list) };
+    let languages = if languages_list.is_empty() {
+        None
+    } else {
+        Some(languages_list)
+    };
 
     Ok(BookMetadataResponse {
         isbn: Some(identifier.to_string()),
