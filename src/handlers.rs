@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::io::Cursor;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -113,7 +114,10 @@ pub async fn delete_books_batch(
             if rows_affected > 0 {
                 Ok(StatusCode::NO_CONTENT)
             } else {
-                Err((StatusCode::NOT_FOUND, "No books found to delete".to_string()))
+                Err((
+                    StatusCode::NOT_FOUND,
+                    "No books found to delete".to_string(),
+                ))
             }
         }
         Err(error) => {
@@ -138,11 +142,6 @@ pub async fn upload_cover(
         )
     })? {
         if field.name() == Some("cover") {
-            let file_uuid = Uuid::new_v4();
-            let file_ext = "jpg";
-            let file_name = format!("{}.{}", file_uuid, file_ext);
-            let file_path = format!("uploads/{}", file_name);
-
             let data = field.bytes().await.map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -151,9 +150,51 @@ pub async fn upload_cover(
             })?;
 
             if data.len() > 5 * 1024 * 1024 {
-                return Err((StatusCode::PAYLOAD_TOO_LARGE, "File too large. Limit is 5MB".to_string()));
+                return Err((
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "File too large. Limit is 5MB".to_string(),
+                ));
             }
 
+            let data_vec = data.to_vec();
+
+            let webp_data = tokio::task::spawn_blocking(move || {
+                let img = image::load_from_memory(&data_vec)
+                    .map_err(|_| "Invalid image data or unsupported format")?;
+
+                let img = img.resize(600, 900, image::imageops::FilterType::Lanczos3);
+
+                let mut buffer = Cursor::new(Vec::new());
+                img.write_to(&mut buffer, image::ImageFormat::WebP)
+                    .map_err(|_| "Failed to encode image to WebP")?;
+
+                Ok::<Vec<u8>, &'static str>(buffer.into_inner())
+            })
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Image processing thread panicked".to_string(),
+                )
+            })?
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+            let file_uuid = Uuid::new_v4().to_string();
+            let dir1 = &file_uuid[0..2];
+            let dir2 = &file_uuid[2..4];
+            let file_name = format!("{}.webp", file_uuid);
+
+            let relative_dir = format!("uploads/{}/{}", dir1, dir2);
+            tokio::fs::create_dir_all(&relative_dir)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Failed to create directories: {}", e),
+                    )
+                })?;
+
+            let file_path = format!("{}/{}", relative_dir, file_name);
             let mut file = File::create(&file_path).await.map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -161,18 +202,21 @@ pub async fn upload_cover(
                 )
             })?;
 
-            file.write_all(&data).await.map_err(|e| {
+            file.write_all(&webp_data).await.map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Failed to write file: {}", e),
                 )
             })?;
 
-            let url = format!("/static/{}", file_name);
+            let url = format!("/static/{}/{}/{}", dir1, dir2, file_name);
 
             return Ok(Json(UploadResponse { url }));
         }
     }
 
-    Err((StatusCode::BAD_REQUEST, "No cover field found in multipart form".to_string()))
+    Err((
+        StatusCode::BAD_REQUEST,
+        "No cover field found in multipart form".to_string(),
+    ))
 }
