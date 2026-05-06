@@ -1,4 +1,4 @@
-FROM rust:latest AS builder
+FROM rust:bookworm AS builder
 
 WORKDIR /usr/src/app
 
@@ -10,6 +10,7 @@ RUN rm -f target/release/deps/home_library_api*
 COPY src ./src
 COPY .env ./
 COPY migrations ./migrations
+COPY fonts ./fonts
 RUN cargo build --release
 
 FROM debian:bookworm-slim
@@ -22,6 +23,7 @@ WORKDIR /app
 
 COPY --from=builder /usr/src/app/target/release/home-library-api .
 COPY --from=builder /usr/src/app/.env .
+COPY --from=builder /usr/src/app/fonts ./fonts
 
 RUN chown -R appuser:appgroup /app
 USER appuser
