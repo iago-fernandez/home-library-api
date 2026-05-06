@@ -4,18 +4,22 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "uuid", "chrono", "rust_decimal"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-dotenvy = "0.15"
-chrono = { version = "0.4", features = ["serde"] }
-rust_decimal = { version = "1.41", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-reqwest = { version = "0.12", features = ["json"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
-image = { version = "0.24", default-features = false, features = ["jpeg", "png", "webp"] }
+axum = { version = "0.8.9", features = ["multipart"] }
+tokio = { version = "1.52.2", features = ["full"] }
+tokio-util = "0.7.18"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-native-tls", "postgres", "uuid", "chrono", "rust_decimal"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+dotenvy = "0.15.7"
+chrono = { version = "0.4.44", features = ["serde"] }
+rust_decimal = { version = "1.41.0", features = ["serde"] }
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
+reqwest = { version = "0.13.3", features = ["json"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tower-http = { version = "0.6.9", features = ["cors", "trace", "fs"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+csv = "1.4.0"
+quick-xml = { version = "0.39.3", features = ["serialize"] }
+futures = "0.3.32"
+genpdf = "0.2.0"
