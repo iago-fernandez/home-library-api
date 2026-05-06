@@ -2,6 +2,8 @@ use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
+    body::Body,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -12,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     integration,
-    models::{Book, BookFilterQuery, BookMetadataResponse, CreateBookDto, PaginatedBooks},
+    models::{Book, BookFilterQuery, BookMetadataResponse, CreateBookDto, PaginatedBooks, ExportRequest},
     repository,
 };
 
@@ -170,14 +172,14 @@ pub async fn upload_cover(
 
                 Ok::<Vec<u8>, &'static str>(buffer.into_inner())
             })
-            .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Image processing thread panicked".to_string(),
-                )
-            })?
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Image processing thread panicked".to_string(),
+                    )
+                })?
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
             let file_uuid = Uuid::new_v4().to_string();
             let dir1 = &file_uuid[0..2];
@@ -219,4 +221,168 @@ pub async fn upload_cover(
         StatusCode::BAD_REQUEST,
         "No cover field found in multipart form".to_string(),
     ))
+}
+
+pub async fn export_csv(
+    State(pool): State<PgPool>,
+    Json(payload): Json<ExportRequest>,
+) -> impl IntoResponse {
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+
+    let requested_columns = if payload.columns.is_empty() {
+        vec!["id".to_string(), "title".to_string(), "authors".to_string()]
+    } else {
+        payload.columns.clone()
+    };
+
+    let mut csv_data = requested_columns.join(",") + "\n";
+
+    if let Ok(books) = books_result {
+        for book in books {
+            let json_val = serde_json::to_value(&book).unwrap_or(serde_json::json!({}));
+            let mut row_values = Vec::new();
+
+            for col in &requested_columns {
+                let cell_val = match json_val.get(col) {
+                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
+                    Some(serde_json::Value::Number(n)) => n.to_string(),
+                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    _ => "".to_string(),
+                }.replace("\"", "\"\"");
+
+                row_values.push(format!("\"{}\"", cell_val));
+            }
+            csv_data.push_str(&row_values.join(","));
+            csv_data.push('\n');
+        }
+    }
+
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"library_export.csv\""),
+        ],
+        Body::from(csv_data),
+    )
+}
+
+pub async fn export_xml(
+    State(pool): State<PgPool>,
+    Json(payload): Json<ExportRequest>,
+) -> impl IntoResponse {
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+
+    let requested_columns = if payload.columns.is_empty() {
+        vec!["id".to_string(), "title".to_string(), "authors".to_string()]
+    } else {
+        payload.columns.clone()
+    };
+
+    let mut xml_data = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<books>\n");
+
+    if let Ok(books) = books_result {
+        for book in books {
+            let json_val = serde_json::to_value(&book).unwrap_or(serde_json::json!({}));
+            xml_data.push_str("  <book>\n");
+
+            for col in &requested_columns {
+                let cell_val = match json_val.get(col) {
+                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
+                    Some(serde_json::Value::Number(n)) => n.to_string(),
+                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    _ => "".to_string(),
+                };
+
+                let safe_val = cell_val.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;");
+                xml_data.push_str(&format!("    <{}>{}</{}>\n", col, safe_val, col));
+            }
+            xml_data.push_str("  </book>\n");
+        }
+    }
+
+    xml_data.push_str("</books>\n");
+
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "application/xml; charset=utf-8"),
+            (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"library_export.xml\""),
+        ],
+        Body::from(xml_data),
+    )
+}
+
+pub async fn export_pdf(
+    State(pool): State<PgPool>,
+    Json(payload): Json<ExportRequest>,
+) -> impl IntoResponse {
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+
+    let requested_columns = if payload.columns.is_empty() {
+        vec!["title".to_string(), "authors".to_string(), "publish_date".to_string()]
+    } else {
+        payload.columns.clone()
+    };
+
+    let font_family = match genpdf::fonts::from_files("fonts", "Roboto", None) {
+        Ok(f) => f,
+        Err(_) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Font directory 'fonts' with Roboto family missing".to_string()
+        ).into_response(),
+    };
+
+    let mut doc = genpdf::Document::new(font_family);
+    let mut decorator = genpdf::SimplePageDecorator::new();
+    decorator.set_margins(10);
+    doc.set_page_decorator(decorator);
+
+    let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
+    let mut header_row = table.row();
+
+    for col in &requested_columns {
+        header_row.push_element(genpdf::elements::Paragraph::new(col.to_string()));
+    }
+    header_row.push().unwrap_or_default();
+
+    if let Ok(books) = books_result {
+        for book in books {
+            let json_val = serde_json::to_value(&book).unwrap_or(serde_json::json!({}));
+            let mut row = table.row();
+
+            for col in &requested_columns {
+                let cell_val = match json_val.get(col) {
+                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
+                    Some(serde_json::Value::Number(n)) => n.to_string(),
+                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    _ => "".to_string(),
+                };
+                row.push_element(genpdf::elements::Paragraph::new(cell_val));
+            }
+            row.push().unwrap_or_default();
+        }
+    }
+
+    doc.push(table);
+
+    let mut buffer = Cursor::new(Vec::new());
+    match doc.render(&mut buffer) {
+        Ok(_) => {
+            (
+                [
+                    (axum::http::header::CONTENT_TYPE, "application/pdf"),
+                    (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"library_export.pdf\""),
+                ],
+                Body::from(buffer.into_inner()),
+            ).into_response()
+        },
+        Err(_) => {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to render PDF".to_string()
+            ).into_response()
+        }
+    }
 }
