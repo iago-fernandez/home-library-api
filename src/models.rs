@@ -177,3 +177,9 @@ pub struct PaginatedBooks {
 pub struct BatchDeleteRequest {
     pub ids: Vec<Uuid>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ExportRequest {
+    pub filters: BookFilterQuery,
+    pub columns: Vec<String>,
+}

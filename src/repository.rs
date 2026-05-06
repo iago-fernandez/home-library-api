@@ -10,18 +10,43 @@ pub async fn fetch_books(
     let mut count_query: QueryBuilder<Postgres> =
         QueryBuilder::new("SELECT COUNT(*) FROM books WHERE 1=1");
 
+    apply_filters(&query_params, &mut query);
+    apply_filters(&query_params, &mut count_query);
+
+    apply_sorting(&query_params, &mut query);
+
+    let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
+    let offset = query_params.offset.unwrap_or(0).max(0);
+
+    query.push(" LIMIT ").push_bind(limit);
+    query.push(" OFFSET ").push_bind(offset);
+
+    let books = query.build_query_as::<Book>().fetch_all(pool).await?;
+    let total_count: (i64,) = count_query.build_query_as().fetch_one(pool).await?;
+
+    Ok(PaginatedBooks {
+        data: books,
+        total: total_count.0,
+    })
+}
+
+pub fn apply_filters<'a>(
+    query_params: &'a BookFilterQuery,
+    query: &mut QueryBuilder<'a, Postgres>,
+) {
     if let Some(query_str) = &query_params.query {
         if let Ok(ast) = serde_json::from_str::<QueryAST>(query_str) {
             query.push(" AND (");
-            build_query_recursive(&ast, &mut query);
+            build_query_recursive(&ast, query);
             query.push(")");
-
-            count_query.push(" AND (");
-            build_query_recursive(&ast, &mut count_query);
-            count_query.push(")");
         }
     }
+}
 
+pub fn apply_sorting<'a>(
+    query_params: &'a BookFilterQuery,
+    query: &mut QueryBuilder<'a, Postgres>,
+) {
     let allowed_sort_columns = [
         "catalog_number",
         "title",
@@ -38,14 +63,11 @@ pub async fn fetch_books(
         "location_bookcase",
     ];
 
-    let sort_col = query_params
-        .sort_by
-        .unwrap_or_else(|| "created_at".to_string());
-
-    let final_sort_col = if allowed_sort_columns.contains(&sort_col.as_str()) {
+    let sort_col = query_params.sort_by.as_deref().unwrap_or("created_at");
+    let final_sort_col = if allowed_sort_columns.contains(&sort_col) {
         sort_col
     } else {
-        "created_at".to_string()
+        "created_at"
     };
 
     let order = if query_params.sort_order.as_deref() == Some("asc") {
@@ -53,26 +75,10 @@ pub async fn fetch_books(
     } else {
         "DESC"
     };
-
     query.push(format!(" ORDER BY {} {}, id ASC ", final_sort_col, order));
-
-    let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
-    let offset = query_params.offset.unwrap_or(0).max(0);
-
-    query.push(" LIMIT ").push_bind(limit);
-    query.push(" OFFSET ").push_bind(offset);
-
-    let books = query.build_query_as::<Book>().fetch_all(pool).await?;
-
-    let total_count: (i64,) = count_query.build_query_as().fetch_one(pool).await?;
-
-    Ok(PaginatedBooks {
-        data: books,
-        total: total_count.0,
-    })
 }
 
-fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
+pub fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
     match ast {
         QueryAST::Condition {
             field,
@@ -109,7 +115,12 @@ fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
     }
 }
 
-fn apply_condition(field: &str, operator: &str, value: &str, query: &mut QueryBuilder<Postgres>) {
+pub fn apply_condition(
+    field: &str,
+    operator: &str,
+    value: &str,
+    query: &mut QueryBuilder<Postgres>,
+) {
     let text_columns = [
         "title",
         "subtitle",
@@ -453,4 +464,16 @@ pub async fn delete_books_batch(pool: &PgPool, book_ids: Vec<Uuid>) -> Result<u6
         .await?;
 
     Ok(result.rows_affected())
+}
+
+pub async fn fetch_all_for_export(
+    pool: &PgPool,
+    query_params: &BookFilterQuery,
+) -> Result<Vec<Book>, sqlx::Error> {
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
+
+    apply_filters(query_params, &mut query);
+    apply_sorting(query_params, &mut query);
+
+    query.build_query_as::<Book>().fetch_all(pool).await
 }
