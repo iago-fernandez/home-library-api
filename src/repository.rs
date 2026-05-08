@@ -469,10 +469,22 @@ pub async fn delete_books_batch(pool: &PgPool, book_ids: Vec<Uuid>) -> Result<u6
 pub async fn fetch_all_for_export(
     pool: &PgPool,
     query_params: &BookFilterQuery,
+    specific_ids: Option<Vec<Uuid>>,
 ) -> Result<Vec<Book>, sqlx::Error> {
     let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
 
-    apply_filters(query_params, &mut query);
+    if let Some(ids) = specific_ids {
+        if !ids.is_empty() {
+            query.push(" AND id = ANY(");
+            query.push_bind(ids);
+            query.push(") ");
+        } else {
+            query.push(" AND 1=0 ");
+        }
+    } else {
+        apply_filters(query_params, &mut query);
+    }
+
     apply_sorting(query_params, &mut query);
 
     query.build_query_as::<Book>().fetch_all(pool).await

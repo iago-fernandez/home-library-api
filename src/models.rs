@@ -182,4 +182,5 @@ pub struct BatchDeleteRequest {
 pub struct ExportRequest {
     pub filters: BookFilterQuery,
     pub columns: Vec<String>,
+    pub specific_ids: Option<Vec<Uuid>>,
 }

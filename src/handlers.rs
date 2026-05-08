@@ -227,15 +227,17 @@ pub async fn export_csv(
     State(pool): State<PgPool>,
     Json(payload): Json<ExportRequest>,
 ) -> impl IntoResponse {
-    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters, payload.specific_ids).await;
 
-    let requested_columns = if payload.columns.is_empty() {
+    let requested_columns: Vec<String> = if payload.columns.is_empty() {
         vec!["id".to_string(), "title".to_string(), "authors".to_string()]
     } else {
-        payload.columns.clone()
+        payload.columns.into_iter().filter(|c| c != "cover_url").collect()
     };
 
-    let mut csv_data = requested_columns.join(",") + "\n";
+    let mut csv_data = String::from("\u{FEFF}");
+    csv_data.push_str(&requested_columns.join(";"));
+    csv_data.push('\n');
 
     if let Ok(books) = books_result {
         for book in books {
@@ -247,13 +249,13 @@ pub async fn export_csv(
                     Some(serde_json::Value::String(s)) => s.to_string(),
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
-                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
                     _ => "".to_string(),
                 }.replace("\"", "\"\"");
 
                 row_values.push(format!("\"{}\"", cell_val));
             }
-            csv_data.push_str(&row_values.join(","));
+            csv_data.push_str(&row_values.join(";"));
             csv_data.push('\n');
         }
     }
@@ -271,12 +273,12 @@ pub async fn export_xml(
     State(pool): State<PgPool>,
     Json(payload): Json<ExportRequest>,
 ) -> impl IntoResponse {
-    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters, payload.specific_ids).await;
 
-    let requested_columns = if payload.columns.is_empty() {
+    let requested_columns: Vec<String> = if payload.columns.is_empty() {
         vec!["id".to_string(), "title".to_string(), "authors".to_string()]
     } else {
-        payload.columns.clone()
+        payload.columns.into_iter().filter(|c| c != "cover_url").collect()
     };
 
     let mut xml_data = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<books>\n");
@@ -291,7 +293,7 @@ pub async fn export_xml(
                     Some(serde_json::Value::String(s)) => s.to_string(),
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
-                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
                     _ => "".to_string(),
                 };
 
@@ -317,32 +319,42 @@ pub async fn export_pdf(
     State(pool): State<PgPool>,
     Json(payload): Json<ExportRequest>,
 ) -> impl IntoResponse {
-    let books_result = repository::fetch_all_for_export(&pool, &payload.filters).await;
+    let books_result = repository::fetch_all_for_export(&pool, &payload.filters, payload.specific_ids).await;
 
-    let requested_columns = if payload.columns.is_empty() {
+    let requested_columns: Vec<String> = if payload.columns.is_empty() {
         vec!["title".to_string(), "authors".to_string(), "publish_date".to_string()]
     } else {
-        payload.columns.clone()
+        payload.columns.into_iter().filter(|c| c != "cover_url").collect()
     };
 
     let font_family = match genpdf::fonts::from_files("fonts", "Roboto", None) {
         Ok(f) => f,
         Err(_) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Font directory 'fonts' with Roboto family missing".to_string()
+            "Font directory 'fonts' missing".to_string()
         ).into_response(),
     };
 
     let mut doc = genpdf::Document::new(font_family);
+
+    let landscape_size = genpdf::Size {
+        width: genpdf::Mm::from(297.0),
+        height: genpdf::Mm::from(210.0),
+    };
+    doc.set_paper_size(landscape_size);
+
     let mut decorator = genpdf::SimplePageDecorator::new();
-    decorator.set_margins(10);
+    decorator.set_margins(5);
     doc.set_page_decorator(decorator);
+    doc.set_font_size(6);
 
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
-    let mut header_row = table.row();
+    table.set_cell_decorator(genpdf::elements::FrameCellDecorator::new(true, true, false));
 
+    let mut header_row = table.row();
     for col in &requested_columns {
-        header_row.push_element(genpdf::elements::Paragraph::new(col.to_string()));
+        let label = col.replace("_", " ").to_uppercase();
+        header_row.push_element(genpdf::elements::Paragraph::new(label));
     }
     header_row.push().unwrap_or_default();
 
@@ -356,7 +368,7 @@ pub async fn export_pdf(
                     Some(serde_json::Value::String(s)) => s.to_string(),
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
-                    Some(serde_json::Value::Bool(b)) => b.to_string(),
+                    Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
                     _ => "".to_string(),
                 };
                 row.push_element(genpdf::elements::Paragraph::new(cell_val));
