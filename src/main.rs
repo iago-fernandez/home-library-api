@@ -1,17 +1,20 @@
+mod auth;
 mod handlers;
 mod integration;
 mod models;
 mod repository;
 
 use axum::{
+    routing::{delete, get, post, put},
     Router,
-    http::Method,
-    routing::{delete, get, post},
 };
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
-use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
+use std::time::Duration;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -27,58 +30,42 @@ async fn main() {
         .init();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
     let pool = PgPoolOptions::new()
         .max_connections(5)
+        .acquire_timeout(Duration::from_secs(3))
         .connect(&database_url)
         .await
-        .expect("Failed to connect to Postgres");
+        .expect("Failed to create pool");
 
-    tracing::info!("Running database migrations");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run database migrations");
-
-    std::fs::create_dir_all("uploads").unwrap_or_else(|e| {
-        tracing::error!("Failed to create uploads directory: {}", e);
-    });
+    tokio::fs::create_dir_all("uploads").await.unwrap();
 
     let cors = CorsLayer::new()
-        .allow_origin(tower_http::cors::Any)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers(tower_http::cors::Any);
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     let app = Router::new()
-        .route("/health", get(health_check))
-        .route(
-            "/books",
-            get(handlers::get_all_books).post(handlers::create_book),
-        )
-        .route("/books/batch", delete(handlers::delete_books_batch))
-        .route(
-            "/books/{id}",
-            delete(handlers::delete_book).put(handlers::update_book),
-        )
-        .route("/books/lookup/{identifier}", get(handlers::lookup_metadata))
-        .route("/books/search-metadata", get(handlers::search_metadata))
-        .route("/books/upload-cover", post(handlers::upload_cover))
-        .route("/books/export/csv", axum::routing::post(handlers::export_csv))
-        .route("/books/export/xml", axum::routing::post(handlers::export_xml))
-        .route("/books/export/pdf", axum::routing::post(handlers::export_pdf))
+        .route("/auth/register", post(handlers::register))
+        .route("/auth/login", post(handlers::login))
+        .route("/api/users/me", put(handlers::update_profile))
+        .route("/api/books", get(handlers::get_all_books).post(handlers::create_book))
+        .route("/api/books/:id", delete(handlers::delete_book).put(handlers::update_book))
+        .route("/api/books/batch-delete", post(handlers::delete_books_batch))
+        .route("/api/lookup/metadata/:identifier", get(handlers::lookup_metadata))
+        .route("/api/lookup/search", get(handlers::search_metadata))
+        .route("/api/upload/cover", post(handlers::upload_cover))
+        .route("/api/export/csv", post(handlers::export_csv))
+        .route("/api/export/xml", post(handlers::export_xml))
+        .route("/api/export/pdf", post(handlers::export_pdf))
         .nest_service("/static", ServeDir::new("uploads"))
-        .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(TraceLayer::new_for_http())
         .with_state(pool);
 
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let addr = format!("0.0.0.0:{}", port);
+    tracing::info!("listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    tracing::debug!("Listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
-}
-
-async fn health_check() -> &'static str {
-    "OK"
 }
