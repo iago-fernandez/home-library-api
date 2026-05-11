@@ -1,18 +1,34 @@
 use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST};
-use sqlx::{PgPool, Postgres, QueryBuilder};
+use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
 use uuid::Uuid;
 
 pub async fn fetch_books(
     pool: &PgPool,
     query_params: BookFilterQuery,
+    user_id: Uuid,
 ) -> Result<PaginatedBooks, sqlx::Error> {
-    let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
-    let mut count_query: QueryBuilder<Postgres> =
-        QueryBuilder::new("SELECT COUNT(*) FROM books WHERE 1=1");
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
+        "SELECT b.*, ubi.read_status, ubi.rating, ubi.personal_notes, ubi.reading_notes, ubi.date_started, ubi.date_finished \
+         FROM books b \
+         LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
+    );
+    query.push_bind(user_id);
+    query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    query.push_bind(user_id);
+    query.push(") ");
+
+    let mut count_query: QueryBuilder<Postgres> = QueryBuilder::new(
+        "SELECT COUNT(*) \
+         FROM books b \
+         LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
+    );
+    count_query.push_bind(user_id);
+    count_query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    count_query.push_bind(user_id);
+    count_query.push(") ");
 
     apply_filters(&query_params, &mut query);
     apply_filters(&query_params, &mut count_query);
-
     apply_sorting(&query_params, &mut query);
 
     let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
@@ -30,10 +46,25 @@ pub async fn fetch_books(
     })
 }
 
-pub fn apply_filters<'a>(
-    query_params: &'a BookFilterQuery,
-    query: &mut QueryBuilder<'a, Postgres>,
-) {
+pub async fn fetch_book_by_id(
+    tx: &mut Transaction<'_, Postgres>,
+    book_id: Uuid,
+    user_id: Uuid,
+) -> Result<Book, sqlx::Error> {
+    let query = "
+        SELECT b.*, ubi.read_status, ubi.rating, ubi.personal_notes, ubi.reading_notes, ubi.date_started, ubi.date_finished
+        FROM books b
+        LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = $1
+        WHERE b.id = $2
+    ";
+    sqlx::query_as::<_, Book>(query)
+        .bind(user_id)
+        .bind(book_id)
+        .fetch_one(&mut **tx)
+        .await
+}
+
+pub fn apply_filters<'a>(query_params: &'a BookFilterQuery, query: &mut QueryBuilder<'a, Postgres>) {
     if let Some(query_str) = &query_params.query {
         if let Ok(ast) = serde_json::from_str::<QueryAST>(query_str) {
             query.push(" AND (");
@@ -43,56 +74,28 @@ pub fn apply_filters<'a>(
     }
 }
 
-pub fn apply_sorting<'a>(
-    query_params: &'a BookFilterQuery,
-    query: &mut QueryBuilder<'a, Postgres>,
-) {
+pub fn apply_sorting<'a>(query_params: &'a BookFilterQuery, query: &mut QueryBuilder<'a, Postgres>) {
     let allowed_sort_columns = [
-        "catalog_number",
-        "title",
-        "page_count",
-        "rating",
-        "publish_date",
-        "created_at",
-        "updated_at",
-        "purchase_price",
-        "authors",
-        "publisher",
-        "isbn_13",
-        "location_room",
-        "location_bookcase",
+        "catalog_number", "title", "page_count", "rating", "publish_date",
+        "created_at", "updated_at", "purchase_price", "authors", "publisher",
+        "isbn_13", "location_room", "location_bookcase",
     ];
 
     let sort_col = query_params.sort_by.as_deref().unwrap_or("created_at");
-    let final_sort_col = if allowed_sort_columns.contains(&sort_col) {
-        sort_col
-    } else {
-        "created_at"
-    };
+    let final_sort_col = if allowed_sort_columns.contains(&sort_col) { sort_col } else { "created_at" };
+    let prefix = if ["rating"].contains(&final_sort_col) { "ubi" } else { "b" };
+    let order = if query_params.sort_order.as_deref() == Some("asc") { "ASC" } else { "DESC" };
 
-    let order = if query_params.sort_order.as_deref() == Some("asc") {
-        "ASC"
-    } else {
-        "DESC"
-    };
-    query.push(format!(" ORDER BY {} {}, id ASC ", final_sort_col, order));
+    query.push(format!(" ORDER BY {}.{} {} NULLS LAST, b.id ASC ", prefix, final_sort_col, order));
 }
 
 pub fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>) {
     match ast {
-        QueryAST::Condition {
-            field,
-            operator,
-            value,
-        } => {
-            apply_condition(field, operator, value, query);
-        }
+        QueryAST::Condition { field, operator, value } => apply_condition(field, operator, value, query),
         QueryAST::And { nodes } => {
             query.push("(");
             for (i, node) in nodes.iter().enumerate() {
-                if i > 0 {
-                    query.push(" AND ");
-                }
+                if i > 0 { query.push(" AND "); }
                 build_query_recursive(node, query);
             }
             query.push(")");
@@ -100,9 +103,7 @@ pub fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>)
         QueryAST::Or { nodes } => {
             query.push("(");
             for (i, node) in nodes.iter().enumerate() {
-                if i > 0 {
-                    query.push(" OR ");
-                }
+                if i > 0 { query.push(" OR "); }
                 build_query_recursive(node, query);
             }
             query.push(")");
@@ -115,250 +116,176 @@ pub fn build_query_recursive(ast: &QueryAST, query: &mut QueryBuilder<Postgres>)
     }
 }
 
-pub fn apply_condition(
-    field: &str,
-    operator: &str,
-    value: &str,
-    query: &mut QueryBuilder<Postgres>,
-) {
-    let text_columns = [
-        "title",
-        "subtitle",
-        "original_title",
-        "publisher",
-        "collection_name",
-        "series_name",
-        "description",
-        "personal_notes",
-        "reading_notes",
-        "location_property",
-        "location_room",
-        "location_bookcase",
-        "location_shelf",
-    ];
-
-    let exact_string_columns = [
-        "read_status",
-        "book_format",
-        "condition_state",
-        "target_audience",
-        "language",
-        "original_language",
-        "store_or_vendor",
-        "acquisition_type",
-        "isbn_13",
-        "isbn_10",
-    ];
-
-    let numeric_columns = [
-        "page_count",
-        "rating",
-        "volume_in_collection",
-        "volume_in_series",
-    ];
-
-    let date_columns = [
-        "publish_date",
-        "original_publish_date",
-        "purchase_date",
-        "date_started",
-        "date_finished",
-    ];
-
+pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut QueryBuilder<Postgres>) {
     if field == "search" {
         let term = format!("%{}%", value);
-        query.push(" (title ILIKE ");
-        query.push_bind(term.clone());
-        query.push(" OR original_title ILIKE ");
-        query.push_bind(term);
-        query.push(") ");
+        query.push(" (b.title ILIKE ").push_bind(term.clone())
+            .push(" OR b.original_title ILIKE ").push_bind(term).push(") ");
         return;
     }
 
     if field == "author" || field == "authors" {
-        query.push(" array_to_string(authors, ', ') ILIKE ");
-        query.push_bind(format!("%{}%", value));
+        query.push(" array_to_string(b.authors, ', ') ILIKE ").push_bind(format!("%{}%", value));
         return;
     }
 
+    let ubi_fields = ["read_status", "rating", "personal_notes", "reading_notes", "date_started", "date_finished"];
+    let prefix = if ubi_fields.contains(&field) { "ubi" } else { "b" };
+    let full_field = format!("{}.{}", prefix, field);
+
+    let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf"];
+    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10"];
+    let numeric_columns = ["page_count", "rating", "volume_in_collection", "volume_in_series"];
+    let date_columns = ["publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished"];
+
     if text_columns.contains(&field) || exact_string_columns.contains(&field) {
         match operator {
-            "_contains" => {
-                query.push(format!(" {} ILIKE ", field));
-                query.push_bind(format!("%{}%", value));
-            }
-            "_contains_case" => {
-                query.push(format!(" {} LIKE ", field));
-                query.push_bind(format!("%{}%", value));
-            }
-            "_starts" => {
-                query.push(format!(" {} ILIKE ", field));
-                query.push_bind(format!("{}%", value));
-            }
-            "_starts_case" => {
-                query.push(format!(" {} LIKE ", field));
-                query.push_bind(format!("{}%", value));
-            }
-            "_ends" => {
-                query.push(format!(" {} ILIKE ", field));
-                query.push_bind(format!("%{}", value));
-            }
-            "_ends_case" => {
-                query.push(format!(" {} LIKE ", field));
-                query.push_bind(format!("%{}", value));
-            }
-            "_exact" => {
-                query.push(format!(" {} = ", field));
-                query.push_bind(value.to_string());
-            }
+            "_contains" => { query.push(format!(" {} ILIKE ", full_field)).push_bind(format!("%{}%", value)); }
+            "_contains_case" => { query.push(format!(" {} LIKE ", full_field)).push_bind(format!("%{}%", value)); }
+            "_starts" => { query.push(format!(" {} ILIKE ", full_field)).push_bind(format!("{}%", value)); }
+            "_starts_case" => { query.push(format!(" {} LIKE ", full_field)).push_bind(format!("{}%", value)); }
+            "_ends" => { query.push(format!(" {} ILIKE ", full_field)).push_bind(format!("%{}", value)); }
+            "_ends_case" => { query.push(format!(" {} LIKE ", full_field)).push_bind(format!("%{}", value)); }
+            "_exact" => { query.push(format!(" {} = ", full_field)).push_bind(value.to_string()); }
             "_empty" => {
-                if value == "true" {
-                    query.push(format!(" ({} IS NULL OR {} = '') ", field, field));
-                } else {
-                    query.push(format!(" ({} IS NOT NULL AND {} != '') ", field, field));
-                }
+                if value == "true" { query.push(format!(" ({} IS NULL OR {} = '') ", full_field, full_field)); }
+                else { query.push(format!(" ({} IS NOT NULL AND {} != '') ", full_field, full_field)); }
             }
-            _ => {
-                query.push(format!(" {} ILIKE ", field));
-                query.push_bind(format!("%{}%", value));
-            }
+            _ => { query.push(format!(" {} ILIKE ", full_field)).push_bind(format!("%{}%", value)); }
         }
     } else if numeric_columns.contains(&field) {
         if let Ok(num_val) = value.parse::<i32>() {
             match operator {
-                "_gt" => {
-                    query.push(format!(" {} > ", field));
-                    query.push_bind(num_val);
-                }
-                "_gte" => {
-                    query.push(format!(" {} >= ", field));
-                    query.push_bind(num_val);
-                }
-                "_lt" => {
-                    query.push(format!(" {} < ", field));
-                    query.push_bind(num_val);
-                }
-                "_lte" => {
-                    query.push(format!(" {} <= ", field));
-                    query.push_bind(num_val);
-                }
-                _ => {
-                    query.push(format!(" {} = ", field));
-                    query.push_bind(num_val);
-                }
+                "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(num_val); }
+                "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(num_val); }
+                "_lt" => { query.push(format!(" {} < ", full_field)).push_bind(num_val); }
+                "_lte" => { query.push(format!(" {} <= ", full_field)).push_bind(num_val); }
+                _ => { query.push(format!(" {} = ", full_field)).push_bind(num_val); }
             }
-        } else {
-            query.push(" 1=0 ");
-        }
+        } else { query.push(" 1=0 "); }
     } else if date_columns.contains(&field) {
         if let Ok(date_val) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
             match operator {
-                "_gt" => {
-                    query.push(format!(" {} > ", field));
-                    query.push_bind(date_val);
-                }
-                "_gte" => {
-                    query.push(format!(" {} >= ", field));
-                    query.push_bind(date_val);
-                }
-                "_lt" => {
-                    query.push(format!(" {} < ", field));
-                    query.push_bind(date_val);
-                }
-                "_lte" => {
-                    query.push(format!(" {} <= ", field));
-                    query.push_bind(date_val);
-                }
-                _ => {
-                    query.push(format!(" {} = ", field));
-                    query.push_bind(date_val);
-                }
+                "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(date_val); }
+                "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(date_val); }
+                "_lt" => { query.push(format!(" {} < ", full_field)).push_bind(date_val); }
+                "_lte" => { query.push(format!(" {} <= ", full_field)).push_bind(date_val); }
+                _ => { query.push(format!(" {} = ", full_field)).push_bind(date_val); }
             }
-        } else {
-            query.push(" 1=0 ");
-        }
+        } else { query.push(" 1=0 "); }
     } else {
         query.push(" 1=1 ");
     }
 }
 
-pub async fn create_book(pool: &PgPool, payload: CreateBookDto) -> Result<Book, sqlx::Error> {
-    let book = sqlx::query_as::<_, Book>(
+pub async fn create_book(
+    pool: &PgPool,
+    payload: CreateBookDto,
+    user_id: Uuid,
+) -> Result<Book, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let library_id = match payload.library_id {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar("SELECT id FROM libraries WHERE owner_id = $1 LIMIT 1")
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?
+        }
+    };
+
+    let book_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO books (
-            isbn_13, isbn_10, open_library_id, oclc_number, title, subtitle, original_title,
+            library_id, isbn_13, isbn_10, open_library_id, oclc_number, title, subtitle, original_title,
             authors, translators, illustrators, publisher, publish_date, original_publish_date,
             edition_number, printing_number, original_edition, is_first_edition, collection_name,
             volume_in_collection, series_name, volume_in_series, book_format, page_count,
             dimensions, weight, language, original_language, subjects, genres, target_audience,
             description, table_of_contents, cover_url, purchase_date, purchase_price,
             store_or_vendor, acquisition_type, location_property, location_room, location_bookcase,
-            location_shelf, location_position, condition_state, personal_notes, read_status,
-            rating, date_started, date_finished, reading_notes, is_loaned, loaned_to,
+            location_shelf, location_position, condition_state, is_loaned, loaned_to,
             loan_date, expected_return_date
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
             $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48
         )
-        RETURNING *
+        RETURNING id
         "#,
     )
-    .bind(payload.isbn_13)
-    .bind(payload.isbn_10)
-    .bind(payload.open_library_id)
-    .bind(payload.oclc_number)
-    .bind(payload.title)
-    .bind(payload.subtitle)
-    .bind(payload.original_title)
-    .bind(payload.authors)
-    .bind(payload.translators)
-    .bind(payload.illustrators)
-    .bind(payload.publisher)
-    .bind(payload.publish_date)
-    .bind(payload.original_publish_date)
-    .bind(payload.edition_number)
-    .bind(payload.printing_number)
-    .bind(payload.original_edition)
-    .bind(payload.is_first_edition)
-    .bind(payload.collection_name)
-    .bind(payload.volume_in_collection)
-    .bind(payload.series_name)
-    .bind(payload.volume_in_series)
-    .bind(payload.book_format)
-    .bind(payload.page_count)
-    .bind(payload.dimensions)
-    .bind(payload.weight)
-    .bind(payload.language)
-    .bind(payload.original_language)
-    .bind(payload.subjects)
-    .bind(payload.genres)
-    .bind(payload.target_audience)
-    .bind(payload.description)
-    .bind(payload.table_of_contents)
-    .bind(payload.cover_url)
-    .bind(payload.purchase_date)
-    .bind(payload.purchase_price)
-    .bind(payload.store_or_vendor)
-    .bind(payload.acquisition_type)
-    .bind(payload.location_property)
-    .bind(payload.location_room)
-    .bind(payload.location_bookcase)
-    .bind(payload.location_shelf)
-    .bind(payload.location_position)
-    .bind(payload.condition_state)
-    .bind(payload.personal_notes)
-    .bind(payload.read_status)
-    .bind(payload.rating)
-    .bind(payload.date_started)
-    .bind(payload.date_finished)
-    .bind(payload.reading_notes)
-    .bind(payload.is_loaned)
-    .bind(payload.loaned_to)
-    .bind(payload.loan_date)
-    .bind(payload.expected_return_date)
-    .fetch_one(pool)
-    .await?;
+        .bind(library_id)
+        .bind(&payload.isbn_13)
+        .bind(&payload.isbn_10)
+        .bind(&payload.open_library_id)
+        .bind(&payload.oclc_number)
+        .bind(&payload.title)
+        .bind(&payload.subtitle)
+        .bind(&payload.original_title)
+        .bind(&payload.authors)
+        .bind(&payload.translators)
+        .bind(&payload.illustrators)
+        .bind(&payload.publisher)
+        .bind(&payload.publish_date)
+        .bind(&payload.original_publish_date)
+        .bind(&payload.edition_number)
+        .bind(&payload.printing_number)
+        .bind(&payload.original_edition)
+        .bind(&payload.is_first_edition)
+        .bind(&payload.collection_name)
+        .bind(&payload.volume_in_collection)
+        .bind(&payload.series_name)
+        .bind(&payload.volume_in_series)
+        .bind(&payload.book_format)
+        .bind(&payload.page_count)
+        .bind(&payload.dimensions)
+        .bind(&payload.weight)
+        .bind(&payload.language)
+        .bind(&payload.original_language)
+        .bind(&payload.subjects)
+        .bind(&payload.genres)
+        .bind(&payload.target_audience)
+        .bind(&payload.description)
+        .bind(&payload.table_of_contents)
+        .bind(&payload.cover_url)
+        .bind(&payload.purchase_date)
+        .bind(&payload.purchase_price)
+        .bind(&payload.store_or_vendor)
+        .bind(&payload.acquisition_type)
+        .bind(&payload.location_property)
+        .bind(&payload.location_room)
+        .bind(&payload.location_bookcase)
+        .bind(&payload.location_shelf)
+        .bind(&payload.location_position)
+        .bind(&payload.condition_state)
+        .bind(&payload.is_loaned)
+        .bind(&payload.loaned_to)
+        .bind(&payload.loan_date)
+        .bind(&payload.expected_return_date)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO user_book_interactions (
+            user_id, book_id, read_status, rating, personal_notes, reading_notes, date_started, date_finished
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+        .bind(user_id)
+        .bind(book_id)
+        .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
+        .bind(&payload.rating)
+        .bind(&payload.personal_notes)
+        .bind(&payload.reading_notes)
+        .bind(&payload.date_started)
+        .bind(&payload.date_finished)
+        .execute(&mut *tx)
+        .await?;
+
+    let book = fetch_book_by_id(&mut tx, book_id, user_id).await?;
+    tx.commit().await?;
 
     Ok(book)
 }
@@ -376,85 +303,121 @@ pub async fn update_book(
     pool: &PgPool,
     book_id: Uuid,
     payload: CreateBookDto,
+    user_id: Uuid,
 ) -> Result<Option<Book>, sqlx::Error> {
-    let book = sqlx::query_as::<_, Book>(
+    let mut tx = pool.begin().await?;
+
+    let library_id = match payload.library_id {
+        Some(id) => id,
+        None => {
+            sqlx::query_scalar("SELECT library_id FROM books WHERE id = $1")
+                .bind(book_id)
+                .fetch_one(&mut *tx)
+                .await?
+        }
+    };
+
+    let update_result = sqlx::query(
         r#"
         UPDATE books SET
-            isbn_13 = $1, isbn_10 = $2, open_library_id = $3, oclc_number = $4, title = $5,
-            subtitle = $6, original_title = $7, authors = $8, translators = $9, illustrators = $10,
-            publisher = $11, publish_date = $12, original_publish_date = $13, edition_number = $14,
-            printing_number = $15, original_edition = $16, is_first_edition = $17, collection_name = $18,
-            volume_in_collection = $19, series_name = $20, volume_in_series = $21, book_format = $22,
-            page_count = $23, dimensions = $24, weight = $25, language = $26, original_language = $27,
-            subjects = $28, genres = $29, target_audience = $30, description = $31, table_of_contents = $32,
-            cover_url = $33, purchase_date = $34, purchase_price = $35, store_or_vendor = $36,
-            acquisition_type = $37, location_property = $38, location_room = $39, location_bookcase = $40,
-            location_shelf = $41, location_position = $42, condition_state = $43, personal_notes = $44,
-            read_status = $45, rating = $46, date_started = $47, date_finished = $48, reading_notes = $49,
-            is_loaned = $50, loaned_to = $51, loan_date = $52, expected_return_date = $53,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $54
-        RETURNING *
+            library_id = $1, isbn_13 = $2, isbn_10 = $3, open_library_id = $4, oclc_number = $5, title = $6,
+            subtitle = $7, original_title = $8, authors = $9, translators = $10, illustrators = $11,
+            publisher = $12, publish_date = $13, original_publish_date = $14, edition_number = $15,
+            printing_number = $16, original_edition = $17, is_first_edition = $18, collection_name = $19,
+            volume_in_collection = $20, series_name = $21, volume_in_series = $22, book_format = $23,
+            page_count = $24, dimensions = $25, weight = $26, language = $27, original_language = $28,
+            subjects = $29, genres = $30, target_audience = $31, description = $32, table_of_contents = $33,
+            cover_url = $34, purchase_date = $35, purchase_price = $36, store_or_vendor = $37,
+            acquisition_type = $38, location_property = $39, location_room = $40, location_bookcase = $41,
+            location_shelf = $42, location_position = $43, condition_state = $44, is_loaned = $45,
+            loaned_to = $46, loan_date = $47, expected_return_date = $48
+        WHERE id = $49
         "#
     )
-        .bind(payload.isbn_13)
-        .bind(payload.isbn_10)
-        .bind(payload.open_library_id)
-        .bind(payload.oclc_number)
-        .bind(payload.title)
-        .bind(payload.subtitle)
-        .bind(payload.original_title)
-        .bind(payload.authors)
-        .bind(payload.translators)
-        .bind(payload.illustrators)
-        .bind(payload.publisher)
-        .bind(payload.publish_date)
-        .bind(payload.original_publish_date)
-        .bind(payload.edition_number)
-        .bind(payload.printing_number)
-        .bind(payload.original_edition)
-        .bind(payload.is_first_edition)
-        .bind(payload.collection_name)
-        .bind(payload.volume_in_collection)
-        .bind(payload.series_name)
-        .bind(payload.volume_in_series)
-        .bind(payload.book_format)
-        .bind(payload.page_count)
-        .bind(payload.dimensions)
-        .bind(payload.weight)
-        .bind(payload.language)
-        .bind(payload.original_language)
-        .bind(payload.subjects)
-        .bind(payload.genres)
-        .bind(payload.target_audience)
-        .bind(payload.description)
-        .bind(payload.table_of_contents)
-        .bind(payload.cover_url)
-        .bind(payload.purchase_date)
-        .bind(payload.purchase_price)
-        .bind(payload.store_or_vendor)
-        .bind(payload.acquisition_type)
-        .bind(payload.location_property)
-        .bind(payload.location_room)
-        .bind(payload.location_bookcase)
-        .bind(payload.location_shelf)
-        .bind(payload.location_position)
-        .bind(payload.condition_state)
-        .bind(payload.personal_notes)
-        .bind(payload.read_status)
-        .bind(payload.rating)
-        .bind(payload.date_started)
-        .bind(payload.date_finished)
-        .bind(payload.reading_notes)
-        .bind(payload.is_loaned)
-        .bind(payload.loaned_to)
-        .bind(payload.loan_date)
-        .bind(payload.expected_return_date)
+        .bind(library_id)
+        .bind(&payload.isbn_13)
+        .bind(&payload.isbn_10)
+        .bind(&payload.open_library_id)
+        .bind(&payload.oclc_number)
+        .bind(&payload.title)
+        .bind(&payload.subtitle)
+        .bind(&payload.original_title)
+        .bind(&payload.authors)
+        .bind(&payload.translators)
+        .bind(&payload.illustrators)
+        .bind(&payload.publisher)
+        .bind(&payload.publish_date)
+        .bind(&payload.original_publish_date)
+        .bind(&payload.edition_number)
+        .bind(&payload.printing_number)
+        .bind(&payload.original_edition)
+        .bind(&payload.is_first_edition)
+        .bind(&payload.collection_name)
+        .bind(&payload.volume_in_collection)
+        .bind(&payload.series_name)
+        .bind(&payload.volume_in_series)
+        .bind(&payload.book_format)
+        .bind(&payload.page_count)
+        .bind(&payload.dimensions)
+        .bind(&payload.weight)
+        .bind(&payload.language)
+        .bind(&payload.original_language)
+        .bind(&payload.subjects)
+        .bind(&payload.genres)
+        .bind(&payload.target_audience)
+        .bind(&payload.description)
+        .bind(&payload.table_of_contents)
+        .bind(&payload.cover_url)
+        .bind(&payload.purchase_date)
+        .bind(&payload.purchase_price)
+        .bind(&payload.store_or_vendor)
+        .bind(&payload.acquisition_type)
+        .bind(&payload.location_property)
+        .bind(&payload.location_room)
+        .bind(&payload.location_bookcase)
+        .bind(&payload.location_shelf)
+        .bind(&payload.location_position)
+        .bind(&payload.condition_state)
+        .bind(&payload.is_loaned)
+        .bind(&payload.loaned_to)
+        .bind(&payload.loan_date)
+        .bind(&payload.expected_return_date)
         .bind(book_id)
-        .fetch_optional(pool)
+        .execute(&mut *tx)
         .await?;
 
-    Ok(book)
+    if update_result.rows_affected() == 0 {
+        return Ok(None);
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO user_book_interactions (user_id, book_id, read_status, rating, personal_notes, reading_notes, date_started, date_finished)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (user_id, book_id) DO UPDATE SET
+            read_status = EXCLUDED.read_status,
+            rating = EXCLUDED.rating,
+            personal_notes = EXCLUDED.personal_notes,
+            reading_notes = EXCLUDED.reading_notes,
+            date_started = EXCLUDED.date_started,
+            date_finished = EXCLUDED.date_finished
+        "#
+    )
+        .bind(user_id)
+        .bind(book_id)
+        .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
+        .bind(&payload.rating)
+        .bind(&payload.personal_notes)
+        .bind(&payload.reading_notes)
+        .bind(&payload.date_started)
+        .bind(&payload.date_finished)
+        .execute(&mut *tx)
+        .await?;
+
+    let book = fetch_book_by_id(&mut tx, book_id, user_id).await?;
+    tx.commit().await?;
+
+    Ok(Some(book))
 }
 
 pub async fn delete_books_batch(pool: &PgPool, book_ids: Vec<Uuid>) -> Result<u64, sqlx::Error> {
@@ -470,12 +433,21 @@ pub async fn fetch_all_for_export(
     pool: &PgPool,
     query_params: &BookFilterQuery,
     specific_ids: Option<Vec<Uuid>>,
+    user_id: Uuid,
 ) -> Result<Vec<Book>, sqlx::Error> {
-    let mut query: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM books WHERE 1=1");
+    let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
+        "SELECT b.*, ubi.read_status, ubi.rating, ubi.personal_notes, ubi.reading_notes, ubi.date_started, ubi.date_finished \
+         FROM books b \
+         LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
+    );
+    query.push_bind(user_id);
+    query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    query.push_bind(user_id);
+    query.push(") ");
 
     if let Some(ids) = specific_ids {
         if !ids.is_empty() {
-            query.push(" AND id = ANY(");
+            query.push(" AND b.id = ANY(");
             query.push_bind(ids);
             query.push(") ");
         } else {

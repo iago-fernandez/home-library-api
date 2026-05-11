@@ -4,9 +4,45 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthResponse {
+    pub token: String,
+    pub user: UserDto,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
+pub struct UserDto {
+    pub id: Uuid,
+    pub username: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserDto {
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct Library {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Book {
     pub id: Uuid,
+    pub library_id: Uuid,
     pub catalog_number: i32,
     pub isbn_13: Option<String>,
     pub isbn_10: Option<String>,
@@ -51,22 +87,23 @@ pub struct Book {
     pub location_shelf: Option<String>,
     pub location_position: Option<i32>,
     pub condition_state: Option<String>,
-    pub personal_notes: Option<String>,
-    pub read_status: Option<String>,
-    pub rating: Option<i32>,
-    pub date_started: Option<NaiveDate>,
-    pub date_finished: Option<NaiveDate>,
-    pub reading_notes: Option<String>,
     pub is_loaned: Option<bool>,
     pub loaned_to: Option<String>,
     pub loan_date: Option<DateTime<Utc>>,
     pub expected_return_date: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub read_status: Option<String>,
+    pub rating: Option<i32>,
+    pub personal_notes: Option<String>,
+    pub reading_notes: Option<String>,
+    pub date_started: Option<NaiveDate>,
+    pub date_finished: Option<NaiveDate>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreateBookDto {
+    pub library_id: Option<Uuid>,
     pub isbn_13: Option<String>,
     pub isbn_10: Option<String>,
     pub open_library_id: Option<String>,
@@ -110,16 +147,16 @@ pub struct CreateBookDto {
     pub location_shelf: Option<String>,
     pub location_position: Option<i32>,
     pub condition_state: Option<String>,
-    pub personal_notes: Option<String>,
-    pub read_status: Option<String>,
-    pub rating: Option<i32>,
-    pub date_started: Option<NaiveDate>,
-    pub date_finished: Option<NaiveDate>,
-    pub reading_notes: Option<String>,
     pub is_loaned: Option<bool>,
     pub loaned_to: Option<String>,
     pub loan_date: Option<DateTime<Utc>>,
     pub expected_return_date: Option<DateTime<Utc>>,
+    pub read_status: Option<String>,
+    pub rating: Option<i32>,
+    pub personal_notes: Option<String>,
+    pub reading_notes: Option<String>,
+    pub date_started: Option<NaiveDate>,
+    pub date_finished: Option<NaiveDate>,
 }
 
 #[derive(Debug, Deserialize)]
