@@ -6,7 +6,7 @@ use axum::{
     body::Body,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, FromRow};
 use std::io::Cursor;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -22,6 +22,13 @@ use crate::{
     },
     repository,
 };
+
+#[derive(FromRow)]
+struct UserAuthRecord {
+    id: Uuid,
+    username: String,
+    password_hash: String,
+}
 
 pub async fn register(
     State(pool): State<PgPool>,
@@ -70,10 +77,10 @@ pub async fn login(
     State(pool): State<PgPool>,
     Json(payload): Json<AuthRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
-    let record = sqlx::query!(
-        "SELECT id, username, password_hash FROM users WHERE username = $1",
-        payload.username
+    let record = sqlx::query_as::<_, UserAuthRecord>(
+        "SELECT id, username, password_hash FROM users WHERE username = $1"
     )
+        .bind(&payload.username)
         .fetch_optional(&pool)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
