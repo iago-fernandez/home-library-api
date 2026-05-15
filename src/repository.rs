@@ -1,4 +1,4 @@
-use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST};
+use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST, UpdateBookPartialDto};
 use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
 use uuid::Uuid;
 
@@ -460,4 +460,115 @@ pub async fn fetch_all_for_export(
     apply_sorting(query_params, &mut query);
 
     query.build_query_as::<Book>().fetch_all(pool).await
+}
+
+pub async fn patch_book(
+    pool: &PgPool,
+    book_id: Uuid,
+    payload: UpdateBookPartialDto,
+    user_id: Uuid,
+) -> Result<Option<Book>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM books WHERE id = $1")
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    if exists.is_none() {
+        return Ok(None);
+    }
+
+    let mut query = QueryBuilder::new("UPDATE books SET ");
+    let mut has_book_fields = false;
+
+    macro_rules! bind_book_field {
+        ($field:ident, $col:expr) => {
+            if let Some(ref val) = payload.$field {
+                if has_book_fields { query.push(", "); }
+                query.push(concat!($col, " = ")).push_bind(val);
+                has_book_fields = true;
+            }
+        };
+    }
+
+    bind_book_field!(title, "title");
+    bind_book_field!(subtitle, "subtitle");
+    bind_book_field!(original_title, "original_title");
+    bind_book_field!(authors, "authors");
+    bind_book_field!(translators, "translators");
+    bind_book_field!(illustrators, "illustrators");
+    bind_book_field!(publisher, "publisher");
+    bind_book_field!(publish_date, "publish_date");
+    bind_book_field!(original_publish_date, "original_publish_date");
+    bind_book_field!(edition_number, "edition_number");
+    bind_book_field!(printing_number, "printing_number");
+    bind_book_field!(original_edition, "original_edition");
+    bind_book_field!(is_first_edition, "is_first_edition");
+    bind_book_field!(collection_name, "collection_name");
+    bind_book_field!(volume_in_collection, "volume_in_collection");
+    bind_book_field!(series_name, "series_name");
+    bind_book_field!(volume_in_series, "volume_in_series");
+    bind_book_field!(book_format, "book_format");
+    bind_book_field!(page_count, "page_count");
+    bind_book_field!(dimensions, "dimensions");
+    bind_book_field!(weight, "weight");
+    bind_book_field!(language, "language");
+    bind_book_field!(original_language, "original_language");
+    bind_book_field!(subjects, "subjects");
+    bind_book_field!(genres, "genres");
+    bind_book_field!(target_audience, "target_audience");
+    bind_book_field!(description, "description");
+    bind_book_field!(table_of_contents, "table_of_contents");
+    bind_book_field!(cover_url, "cover_url");
+    bind_book_field!(purchase_date, "purchase_date");
+    bind_book_field!(purchase_price, "purchase_price");
+    bind_book_field!(store_or_vendor, "store_or_vendor");
+    bind_book_field!(acquisition_type, "acquisition_type");
+    bind_book_field!(location_property, "location_property");
+    bind_book_field!(location_room, "location_room");
+    bind_book_field!(location_bookcase, "location_bookcase");
+    bind_book_field!(location_shelf, "location_shelf");
+    bind_book_field!(location_position, "location_position");
+    bind_book_field!(condition_state, "condition_state");
+    bind_book_field!(is_loaned, "is_loaned");
+    bind_book_field!(loaned_to, "loaned_to");
+    bind_book_field!(loan_date, "loan_date");
+    bind_book_field!(expected_return_date, "expected_return_date");
+
+    if has_book_fields {
+        query.push(", updated_at = NOW() WHERE id = ").push_bind(book_id);
+        query.build().execute(&mut *tx).await?;
+    }
+
+    let mut ubi_query = QueryBuilder::new("UPDATE user_book_interactions SET ");
+    let mut has_ubi_fields = false;
+
+    macro_rules! bind_ubi_field {
+        ($field:ident, $col:expr) => {
+            if let Some(ref val) = payload.$field {
+                if has_ubi_fields { ubi_query.push(", "); }
+                ubi_query.push(concat!($col, " = ")).push_bind(val);
+                has_ubi_fields = true;
+            }
+        };
+    }
+
+    bind_ubi_field!(read_status, "read_status");
+    bind_ubi_field!(rating, "rating");
+    bind_ubi_field!(personal_notes, "personal_notes");
+    bind_ubi_field!(reading_notes, "reading_notes");
+    bind_ubi_field!(date_started, "date_started");
+    bind_ubi_field!(date_finished, "date_finished");
+
+    if has_ubi_fields {
+        ubi_query.push(" WHERE user_id = ").push_bind(user_id);
+        ubi_query.push(" AND book_id = ").push_bind(book_id);
+        ubi_query.build().execute(&mut *tx).await?;
+    }
+
+    let book = fetch_book_by_id(&mut tx, book_id, user_id).await?;
+    tx.commit().await?;
+
+    Ok(Some(book))
 }

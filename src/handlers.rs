@@ -18,7 +18,7 @@ use crate::{
     models::{
         AuthRequest, AuthResponse, BatchDeleteRequest, Book, BookFilterQuery,
         BookMetadataResponse, CreateBookDto, ExportRequest, PaginatedBooks, UserDto,
-        UpdateUserDto,
+        UpdateUserDto, UpdateBookPartialDto,
     },
     repository,
 };
@@ -361,5 +361,18 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     match doc.render(&mut buffer) {
         Ok(_) => ([(axum::http::header::CONTENT_TYPE, "application/pdf"), (axum::http::header::CONTENT_DISPOSITION, "attachment; filename=\"export.pdf\"")], Body::from(buffer.into_inner())).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to render PDF".to_string()).into_response()
+    }
+}
+
+pub async fn patch_book(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateBookPartialDto>,
+) -> Result<Json<Book>, (StatusCode, String)> {
+    match repository::patch_book(&pool, id, payload, claims.sub).await {
+        Ok(Some(book)) => Ok(Json(book)),
+        Ok(None) => Err((StatusCode::NOT_FOUND, "Book not found".to_string())),
+        Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to patch book: {}", error))),
     }
 }
