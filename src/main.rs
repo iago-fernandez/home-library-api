@@ -5,7 +5,7 @@ mod models;
 mod repository;
 
 use axum::{
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use dotenvy::dotenv;
@@ -49,7 +49,7 @@ async fn main() {
         .route("/auth/login", post(handlers::login))
         .route("/api/users/me", put(handlers::update_profile))
         .route("/api/books", get(handlers::get_all_books).post(handlers::create_book))
-        .route("/api/books/{id}", delete(handlers::delete_book).put(handlers::update_book))
+        .route("/api/books/{id}", delete(handlers::delete_book).put(handlers::update_book).patch(handlers::patch_book))
         .route("/api/books/batch-delete", post(handlers::delete_books_batch))
         .route("/api/lookup/metadata/{identifier}", get(handlers::lookup_metadata))
         .route("/api/lookup/search", get(handlers::search_metadata))
