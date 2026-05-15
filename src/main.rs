@@ -5,7 +5,7 @@ mod models;
 mod repository;
 
 use axum::{
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use dotenvy::dotenv;
