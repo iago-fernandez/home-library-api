@@ -34,7 +34,7 @@ pub fn verify_password(hash: &str, password: &str) -> bool {
 pub fn create_jwt(user_id: Uuid) -> Result<String, jsonwebtoken::errors::Error> {
     let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "fallback_secret_change_in_production".to_string());
     let expiration = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(7))
+        .checked_add_signed(chrono::Duration::days(365))
         .expect("Valid timestamp")
         .timestamp() as usize;
 
