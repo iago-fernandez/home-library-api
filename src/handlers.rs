@@ -30,48 +30,7 @@ struct UserAuthRecord {
     password_hash: String,
 }
 
-pub async fn register(
-    State(pool): State<PgPool>,
-    Json(payload): Json<AuthRequest>,
-) -> Result<(StatusCode, Json<AuthResponse>), (StatusCode, String)> {
-    let hash = auth::hash_password(&payload.password).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Hashing error: {}", e))
-    })?;
 
-    let mut tx = pool.begin().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let user_id: Uuid = match sqlx::query_scalar(
-        "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id",
-    )
-        .bind(&payload.username)
-        .bind(hash)
-        .fetch_one(&mut *tx)
-        .await
-    {
-        Ok(id) => id,
-        Err(_) => return Err((StatusCode::CONFLICT, "Username already exists".to_string())),
-    };
-
-    sqlx::query("INSERT INTO libraries (name, owner_id) VALUES ('My Library', $1)")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    tx.commit().await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let token = auth::create_jwt(user_id).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("Token creation failed: {}", e))
-    })?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(AuthResponse {
-            token,
-            user: UserDto { id: user_id, username: payload.username },
-        }),
-    ))
-}
 
 pub async fn login(
     State(pool): State<PgPool>,

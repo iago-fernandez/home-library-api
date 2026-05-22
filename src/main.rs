@@ -37,6 +37,51 @@ async fn main() {
         .await
         .expect("Failed to create pool");
 
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        if args[1] == "create-user" && args.len() == 4 {
+            let username = &args[2];
+            let password = &args[3];
+            let hash = auth::hash_password(password).expect("Hashing failed");
+            let user_id: uuid::Uuid = sqlx::query_scalar("INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id")
+                .bind(username)
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to insert user (maybe username already exists?)");
+            
+            sqlx::query("INSERT INTO libraries (name, owner_id) VALUES ('Main Library', $1)")
+                .bind(user_id)
+                .execute(&pool)
+                .await
+                .expect("Failed to create default library");
+                
+            println!("User '{}' created successfully with ID: {}", username, user_id);
+            return;
+        } else if args[1] == "update-password" && args.len() == 4 {
+            let username = &args[2];
+            let password = &args[3];
+            let hash = auth::hash_password(password).expect("Hashing failed");
+            let rows = sqlx::query("UPDATE users SET password_hash = $1 WHERE username = $2")
+                .bind(&hash)
+                .bind(username)
+                .execute(&pool)
+                .await
+                .expect("Database error");
+            if rows.rows_affected() > 0 {
+                println!("Password updated for user '{}'", username);
+            } else {
+                println!("User '{}' not found", username);
+            }
+            return;
+        } else {
+            println!("Usage:");
+            println!("  cargo run -- create-user <username> <password>");
+            println!("  cargo run -- update-password <username> <new_password>");
+            return;
+        }
+    }
+
     tokio::fs::create_dir_all("uploads").await.unwrap();
 
     let cors = CorsLayer::new()
@@ -45,7 +90,7 @@ async fn main() {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/auth/register", post(handlers::register))
+
         .route("/auth/login", post(handlers::login))
         .route("/api/users/me", put(handlers::update_profile))
         .route("/api/books", get(handlers::get_all_books).post(handlers::create_book))
