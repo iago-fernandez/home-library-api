@@ -572,3 +572,51 @@ pub async fn patch_book(
 
     Ok(Some(book))
 }
+
+pub async fn fetch_autocomplete_suggestions(
+    pool: &PgPool,
+    field: &str,
+    q: &str,
+    user_id: Uuid,
+) -> Result<Vec<String>, sqlx::Error> {
+    let allowed_scalar_fields = [
+        "publisher", "collection_name", "series_name", "language",
+        "original_language", "book_format", "store_or_vendor", "acquisition_type",
+        "title", "subtitle", "original_title", "condition_state", "location_property",
+        "location_room", "location_bookcase", "location_shelf", "location_position"
+    ];
+    let allowed_array_fields = ["authors", "translators", "illustrators", "subjects", "genres"];
+
+    let mut query = QueryBuilder::new("SELECT DISTINCT ");
+
+    if allowed_scalar_fields.contains(&field) {
+        query.push(field);
+        query.push(" FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+        query.push_bind(user_id);
+        query.push(") AND ");
+        query.push(field);
+        query.push(" IS NOT NULL AND ");
+        query.push(field);
+        query.push(" != '' AND ");
+        query.push(field);
+        query.push(" ILIKE ");
+        query.push_bind(format!("%{}%", q));
+        query.push(" ORDER BY ");
+        query.push(field);
+        query.push(" ASC LIMIT 10");
+        
+        let result: Vec<String> = query.build_query_scalar().fetch_all(pool).await?;
+        return Ok(result);
+    } else if allowed_array_fields.contains(&field) {
+        query.push(format!("unnest_val FROM (SELECT unnest({}) as unnest_val FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ", field));
+        query.push_bind(user_id);
+        query.push(format!(")) AS subquery WHERE unnest_val ILIKE "));
+        query.push_bind(format!("%{}%", q));
+        query.push(" ORDER BY unnest_val ASC LIMIT 10");
+
+        let result: Vec<String> = query.build_query_scalar().fetch_all(pool).await?;
+        return Ok(result);
+    } else {
+        return Ok(vec![]);
+    }
+}

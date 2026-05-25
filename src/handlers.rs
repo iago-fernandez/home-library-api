@@ -164,6 +164,23 @@ pub async fn search_metadata(
     }
 }
 
+#[derive(Deserialize)]
+pub struct AutocompleteQuery {
+    pub field: String,
+    pub q: String,
+}
+
+pub async fn get_autocomplete(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Query(query): Query<AutocompleteQuery>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    match repository::fetch_autocomplete_suggestions(&pool, &query.field, &query.q, claims.sub).await {
+        Ok(results) => Ok(Json(results)),
+        Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", error))),
+    }
+}
+
 pub async fn delete_books_batch(
     _claims: Claims,
     State(pool): State<PgPool>,

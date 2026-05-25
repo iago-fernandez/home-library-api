@@ -98,6 +98,7 @@ async fn main() {
         .route("/api/books/batch-delete", post(handlers::delete_books_batch))
         .route("/api/lookup/metadata/{identifier}", get(handlers::lookup_metadata))
         .route("/api/lookup/search", get(handlers::search_metadata))
+        .route("/api/lookup/autocomplete", get(handlers::get_autocomplete))
         .route("/api/upload/cover", post(handlers::upload_cover))
         .route("/api/export/csv", post(handlers::export_csv))
         .route("/api/export/xml", post(handlers::export_xml))
