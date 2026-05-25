@@ -577,8 +577,11 @@ pub async fn fetch_autocomplete_suggestions(
     pool: &PgPool,
     field: &str,
     q: &str,
+    limit: Option<i64>,
     user_id: Uuid,
 ) -> Result<Vec<String>, sqlx::Error> {
+    let limit_val = limit.unwrap_or(10);
+
     let allowed_scalar_fields = [
         "publisher", "collection_name", "series_name", "language",
         "original_language", "book_format", "store_or_vendor", "acquisition_type",
@@ -587,11 +590,14 @@ pub async fn fetch_autocomplete_suggestions(
     ];
     let allowed_array_fields = ["authors", "translators", "illustrators", "subjects", "genres"];
 
-    let mut query = QueryBuilder::new("SELECT DISTINCT ");
+    let mut query = QueryBuilder::new("");
 
     if allowed_scalar_fields.contains(&field) {
+        query.push("SELECT field_val FROM (SELECT ");
         query.push(field);
-        query.push(" FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+        query.push(" as field_val, count(");
+        query.push(field);
+        query.push(") as c FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
         query.push_bind(user_id);
         query.push(") AND ");
         query.push(field);
@@ -601,18 +607,24 @@ pub async fn fetch_autocomplete_suggestions(
         query.push(field);
         query.push(" ILIKE ");
         query.push_bind(format!("%{}%", q));
-        query.push(" ORDER BY ");
+        query.push(" GROUP BY ");
         query.push(field);
-        query.push(" ASC LIMIT 10");
+        query.push(" ORDER BY c DESC LIMIT ");
+        query.push_bind(limit_val);
+        query.push(") sub ORDER BY field_val ASC");
         
         let result: Vec<String> = query.build_query_scalar().fetch_all(pool).await?;
         return Ok(result);
     } else if allowed_array_fields.contains(&field) {
-        query.push(format!("unnest_val FROM (SELECT unnest({}) as unnest_val FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ", field));
+        query.push("SELECT unnest_val FROM (SELECT unnest_val, count(unnest_val) as c FROM (SELECT unnest(");
+        query.push(field);
+        query.push(") as unnest_val FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
         query.push_bind(user_id);
-        query.push(format!(")) AS subquery WHERE unnest_val ILIKE "));
+        query.push(")) as unnested WHERE unnest_val ILIKE ");
         query.push_bind(format!("%{}%", q));
-        query.push(" ORDER BY unnest_val ASC LIMIT 10");
+        query.push(" GROUP BY unnest_val ORDER BY c DESC LIMIT ");
+        query.push_bind(limit_val);
+        query.push(") sub ORDER BY unnest_val ASC");
 
         let result: Vec<String> = query.build_query_scalar().fetch_all(pool).await?;
         return Ok(result);
