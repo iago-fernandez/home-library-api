@@ -168,6 +168,7 @@ pub async fn search_metadata(
 pub struct AutocompleteQuery {
     pub field: String,
     pub q: String,
+    pub limit: Option<i64>,
 }
 
 pub async fn get_autocomplete(
@@ -175,7 +176,7 @@ pub async fn get_autocomplete(
     State(pool): State<PgPool>,
     Query(query): Query<AutocompleteQuery>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
-    match repository::fetch_autocomplete_suggestions(&pool, &query.field, &query.q, claims.sub).await {
+    match repository::fetch_autocomplete_suggestions(&pool, &query.field, &query.q, query.limit, claims.sub).await {
         Ok(results) => Ok(Json(results)),
         Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", error))),
     }
