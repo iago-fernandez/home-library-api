@@ -39,6 +39,33 @@ pub struct Library {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateLibraryDto {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateLibraryDto {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct LibraryMember {
+    pub library_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+    pub username: Option<String>, // joined field for frontend convenience
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ShareLibraryDto {
+    pub username: String,
+    pub role: String, // 'editor', 'viewer'
+}
+
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Book {
     pub id: Uuid,
@@ -185,6 +212,7 @@ pub struct BookFilterQuery {
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
     pub query: Option<String>,
+    pub library_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
