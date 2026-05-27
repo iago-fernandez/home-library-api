@@ -1,4 +1,4 @@
-use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST, UpdateBookPartialDto};
+use crate::models::{Book, BookFilterQuery, CreateBookDto, PaginatedBooks, QueryAST, UpdateBookPartialDto, Library, CreateLibraryDto, UpdateLibraryDto, LibraryMember, ShareLibraryDto};
 use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
 use uuid::Uuid;
 
@@ -13,7 +13,9 @@ pub async fn fetch_books(
          LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
     );
     query.push_bind(user_id);
-    query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    query.push(" WHERE b.library_id IN (SELECT l.id FROM libraries l LEFT JOIN library_members lm ON l.id = lm.library_id WHERE l.owner_id = ");
+    query.push_bind(user_id);
+    query.push(" OR lm.user_id = ");
     query.push_bind(user_id);
     query.push(") ");
 
@@ -23,9 +25,18 @@ pub async fn fetch_books(
          LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
     );
     count_query.push_bind(user_id);
-    count_query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    count_query.push(" WHERE b.library_id IN (SELECT l.id FROM libraries l LEFT JOIN library_members lm ON l.id = lm.library_id WHERE l.owner_id = ");
+    count_query.push_bind(user_id);
+    count_query.push(" OR lm.user_id = ");
     count_query.push_bind(user_id);
     count_query.push(") ");
+
+    if let Some(lib_id) = query_params.library_id {
+        query.push(" AND b.library_id = ");
+        query.push_bind(lib_id);
+        count_query.push(" AND b.library_id = ");
+        count_query.push_bind(lib_id);
+    }
 
     apply_filters(&query_params, &mut query);
     apply_filters(&query_params, &mut count_query);
@@ -441,7 +452,9 @@ pub async fn fetch_all_for_export(
          LEFT JOIN user_book_interactions ubi ON b.id = ubi.book_id AND ubi.user_id = "
     );
     query.push_bind(user_id);
-    query.push(" WHERE b.library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+    query.push(" WHERE b.library_id IN (SELECT l.id FROM libraries l LEFT JOIN library_members lm ON l.id = lm.library_id WHERE l.owner_id = ");
+    query.push_bind(user_id);
+    query.push(" OR lm.user_id = ");
     query.push_bind(user_id);
     query.push(") ");
 
@@ -597,7 +610,9 @@ pub async fn fetch_autocomplete_suggestions(
         query.push(field);
         query.push(" as field_val, count(");
         query.push(field);
-        query.push(") as c FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+        query.push(") as c FROM books WHERE library_id IN (SELECT l.id FROM libraries l LEFT JOIN library_members lm ON l.id = lm.library_id WHERE l.owner_id = ");
+        query.push_bind(user_id);
+        query.push(" OR lm.user_id = ");
         query.push_bind(user_id);
         query.push(") AND ");
         query.push(field);
@@ -618,7 +633,9 @@ pub async fn fetch_autocomplete_suggestions(
     } else if allowed_array_fields.contains(&field) {
         query.push("SELECT unnest_val FROM (SELECT unnest_val, count(unnest_val) as c FROM (SELECT unnest(");
         query.push(field);
-        query.push(") as unnest_val FROM books WHERE library_id IN (SELECT id FROM libraries WHERE owner_id = ");
+        query.push(") as unnest_val FROM books WHERE library_id IN (SELECT l.id FROM libraries l LEFT JOIN library_members lm ON l.id = lm.library_id WHERE l.owner_id = ");
+        query.push_bind(user_id);
+        query.push(" OR lm.user_id = ");
         query.push_bind(user_id);
         query.push(")) as unnested WHERE unnest_val ILIKE ");
         query.push_bind(format!("%{}%", q));
@@ -631,4 +648,139 @@ pub async fn fetch_autocomplete_suggestions(
     } else {
         return Ok(vec![]);
     }
+}
+
+pub async fn get_libraries(pool: &PgPool, user_id: Uuid) -> Result<Vec<Library>, sqlx::Error> {
+    sqlx::query_as::<_, Library>(
+        "SELECT l.* FROM libraries l 
+         LEFT JOIN library_members lm ON l.id = lm.library_id 
+         WHERE l.owner_id = $1 OR lm.user_id = $1
+         GROUP BY l.id ORDER BY l.created_at ASC"
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn create_library(pool: &PgPool, payload: CreateLibraryDto, user_id: Uuid) -> Result<Library, sqlx::Error> {
+    sqlx::query_as::<_, Library>(
+        "INSERT INTO libraries (name, description, owner_id) 
+         VALUES ($1, $2, $3) RETURNING *"
+    )
+    .bind(payload.name)
+    .bind(payload.description)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn update_library(pool: &PgPool, library_id: Uuid, payload: UpdateLibraryDto, user_id: Uuid) -> Result<Library, sqlx::Error> {
+    sqlx::query_as::<_, Library>(
+        "UPDATE libraries SET 
+            name = COALESCE($1, name),
+            description = COALESCE($2, description),
+            updated_at = NOW()
+         WHERE id = $3 AND owner_id = $4 RETURNING *"
+    )
+    .bind(payload.name)
+    .bind(payload.description)
+    .bind(library_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn delete_library(pool: &PgPool, library_id: Uuid, user_id: Uuid) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM libraries WHERE id = $1 AND owner_id = $2")
+        .bind(library_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn get_library_members(pool: &PgPool, library_id: Uuid, requester_id: Uuid) -> Result<Vec<LibraryMember>, sqlx::Error> {
+    let is_authorized = check_library_permission(pool, library_id, requester_id, vec!["owner", "editor", "viewer"]).await?;
+    if !is_authorized {
+        return Err(sqlx::Error::RowNotFound);
+    }
+
+    sqlx::query_as::<_, LibraryMember>(
+        "SELECT lm.library_id, lm.user_id, lm.role, lm.created_at, u.username 
+         FROM library_members lm 
+         JOIN users u ON lm.user_id = u.id 
+         WHERE lm.library_id = $1"
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn add_library_member(pool: &PgPool, library_id: Uuid, payload: ShareLibraryDto, owner_id: Uuid) -> Result<LibraryMember, sqlx::Error> {
+    let is_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM libraries WHERE id = $1 AND owner_id = $2)")
+        .bind(library_id).bind(owner_id).fetch_one(pool).await?;
+    if !is_owner { return Err(sqlx::Error::RowNotFound); }
+
+    let target_user_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
+        .bind(&payload.username).fetch_optional(pool).await?;
+    
+    let target_user_id = match target_user_id {
+        Some(id) => id,
+        None => return Err(sqlx::Error::RowNotFound),
+    };
+
+    sqlx::query_as::<_, LibraryMember>(
+        "INSERT INTO library_members (library_id, user_id, role) 
+         VALUES ($1, $2, $3) 
+         ON CONFLICT (library_id, user_id) DO UPDATE SET role = EXCLUDED.role 
+         RETURNING library_id, user_id, role, created_at, $4 as username"
+    )
+    .bind(library_id)
+    .bind(target_user_id)
+    .bind(payload.role)
+    .bind(payload.username)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn remove_library_member(pool: &PgPool, library_id: Uuid, target_user_id: Uuid, owner_id: Uuid) -> Result<u64, sqlx::Error> {
+    let is_owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM libraries WHERE id = $1 AND owner_id = $2)")
+        .bind(library_id).bind(owner_id).fetch_one(pool).await?;
+    if !is_owner { return Err(sqlx::Error::RowNotFound); }
+
+    let result = sqlx::query("DELETE FROM library_members WHERE library_id = $1 AND user_id = $2")
+        .bind(library_id)
+        .bind(target_user_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn check_library_permission(pool: &PgPool, library_id: Uuid, user_id: Uuid, allowed_roles: Vec<&str>) -> Result<bool, sqlx::Error> {
+    let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM libraries WHERE id = $1")
+        .bind(library_id)
+        .fetch_optional(pool)
+        .await?;
+    
+    if let Some(owner) = owner_id {
+        if owner == user_id && allowed_roles.contains(&"owner") {
+            return Ok(true);
+        }
+    } else {
+        return Ok(false);
+    }
+
+    let role: Option<String> = sqlx::query_scalar("SELECT role FROM library_members WHERE library_id = $1 AND user_id = $2")
+        .bind(library_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some(r) = role {
+        if allowed_roles.contains(&r.as_str()) {
+            return Ok(true);
+        }
+    }
+    
+    Ok(false)
 }

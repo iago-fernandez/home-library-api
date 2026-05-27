@@ -18,7 +18,8 @@ use crate::{
     models::{
         AuthRequest, AuthResponse, BatchDeleteRequest, Book, BookFilterQuery,
         BookMetadataResponse, CreateBookDto, ExportRequest, PaginatedBooks, UserDto,
-        UpdateUserDto, UpdateBookPartialDto,
+        UpdateUserDto, UpdateBookPartialDto, CreateLibraryDto, UpdateLibraryDto,
+        Library, LibraryMember, ShareLibraryDto,
     },
     repository,
 };
@@ -351,5 +352,98 @@ pub async fn patch_book(
         Ok(Some(book)) => Ok(Json(book)),
         Ok(None) => Err((StatusCode::NOT_FOUND, "Book not found".to_string())),
         Err(error) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to patch book: {}", error))),
+    }
+}
+
+pub async fn get_libraries(
+    claims: Claims,
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<Library>>, StatusCode> {
+    match repository::get_libraries(&pool, claims.sub).await {
+        Ok(libs) => Ok(Json(libs)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn create_library(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Json(payload): Json<CreateLibraryDto>,
+) -> Result<Json<Library>, StatusCode> {
+    match repository::create_library(&pool, payload, claims.sub).await {
+        Ok(lib) => Ok(Json(lib)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn update_library(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateLibraryDto>,
+) -> Result<Json<Library>, StatusCode> {
+    match repository::update_library(&pool, id, payload, claims.sub).await {
+        Ok(lib) => Ok(Json(lib)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn delete_library(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, StatusCode> {
+    match repository::delete_library(&pool, id, claims.sub).await {
+        Ok(affected) => {
+            if affected > 0 {
+                Ok(StatusCode::NO_CONTENT)
+            } else {
+                Err(StatusCode::NOT_FOUND)
+            }
+        },
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn get_library_members(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<LibraryMember>>, StatusCode> {
+    match repository::get_library_members(&pool, id, claims.sub).await {
+        Ok(members) => Ok(Json(members)),
+        Err(sqlx::Error::RowNotFound) => Err(StatusCode::FORBIDDEN),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn add_library_member(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<ShareLibraryDto>,
+) -> Result<Json<LibraryMember>, StatusCode> {
+    match repository::add_library_member(&pool, id, payload, claims.sub).await {
+        Ok(member) => Ok(Json(member)),
+        Err(sqlx::Error::RowNotFound) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn remove_library_member(
+    claims: Claims,
+    State(pool): State<PgPool>,
+    Path((lib_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, StatusCode> {
+    match repository::remove_library_member(&pool, lib_id, user_id, claims.sub).await {
+        Ok(affected) => {
+            if affected > 0 {
+                Ok(StatusCode::NO_CONTENT)
+            } else {
+                Err(StatusCode::NOT_FOUND)
+            }
+        },
+        Err(sqlx::Error::RowNotFound) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
