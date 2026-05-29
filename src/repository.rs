@@ -199,7 +199,7 @@ pub async fn create_book(
     let library_id = match payload.library_id {
         Some(id) => id,
         None => {
-            sqlx::query_scalar("SELECT id FROM libraries WHERE owner_id = $1 LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM libraries WHERE owner_id = $1 ORDER BY created_at ASC LIMIT 1")
                 .bind(user_id)
                 .fetch_one(&mut *tx)
                 .await?
