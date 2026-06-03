@@ -89,7 +89,16 @@ pub fn apply_sorting<'a>(query_params: &'a BookFilterQuery, query: &mut QueryBui
     let allowed_sort_columns = [
         "catalog_number", "title", "page_count", "rating", "publish_date",
         "created_at", "updated_at", "purchase_price", "authors", "publisher",
-        "isbn_13", "location_room", "location_bookcase",
+        "isbn_13", "location_room", "location_bookcase", "subtitle", "original_title",
+        "translators", "illustrators", "original_publish_date", "isbn_10", "oclc_number",
+        "open_library_id", "edition_number", "printing_number", "original_edition",
+        "is_first_edition", "collection_name", "volume_in_collection", "series_name",
+        "volume_in_series", "book_format", "dimensions", "weight", "language",
+        "original_language", "subjects", "genres", "target_audience", "purchase_date",
+        "store_or_vendor", "acquisition_type", "location_property", "location_shelf",
+        "location_position", "condition_state", "read_status", "date_started",
+        "date_finished", "is_loaned", "loaned_to", "loan_date", "expected_return_date",
+        "description", "table_of_contents", "personal_notes", "reading_notes"
     ];
 
     let sort_col = query_params.sort_by.as_deref().unwrap_or("created_at");
@@ -144,10 +153,11 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
     let prefix = if ubi_fields.contains(&field) { "ubi" } else { "b" };
     let full_field = format!("{}.{}", prefix, field);
 
-    let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf"];
-    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10"];
-    let numeric_columns = ["page_count", "rating", "volume_in_collection", "volume_in_series"];
-    let date_columns = ["publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished"];
+    let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "table_of_contents", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf", "loaned_to", "dimensions", "weight"];
+    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10", "oclc_number", "open_library_id", "edition_number", "printing_number", "original_edition"];
+    let numeric_columns = ["catalog_number", "page_count", "rating", "volume_in_collection", "volume_in_series", "purchase_price", "location_position"];
+    let date_columns = ["publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished", "loan_date", "expected_return_date", "created_at", "updated_at"];
+    let boolean_columns = ["is_first_edition", "is_loaned"];
 
     if text_columns.contains(&field) || exact_string_columns.contains(&field) {
         match operator {
@@ -183,7 +193,23 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
                 "_lte" => { query.push(format!(" {} <= ", full_field)).push_bind(date_val); }
                 _ => { query.push(format!(" {} = ", full_field)).push_bind(date_val); }
             }
+        } else if let Ok(datetime_val) = chrono::DateTime::parse_from_rfc3339(value) {
+            match operator {
+                "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(datetime_val.naive_utc()); }
+                "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(datetime_val.naive_utc()); }
+                "_lt" => { query.push(format!(" {} < ", full_field)).push_bind(datetime_val.naive_utc()); }
+                "_lte" => { query.push(format!(" {} <= ", full_field)).push_bind(datetime_val.naive_utc()); }
+                _ => { query.push(format!(" {} = ", full_field)).push_bind(datetime_val.naive_utc()); }
+            }
         } else { query.push(" 1=0 "); }
+    } else if boolean_columns.contains(&field) {
+        if value == "true" {
+            query.push(format!(" {} = TRUE ", full_field));
+        } else if value == "false" {
+            query.push(format!(" {} = FALSE ", full_field));
+        } else {
+            query.push(" 1=0 ");
+        }
     } else {
         query.push(" 1=1 ");
     }
