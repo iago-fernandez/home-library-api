@@ -505,6 +505,7 @@ pub async fn patch_book(
         };
     }
 
+    bind_book_field!(library_id, "library_id");
     bind_book_field!(title, "title");
     bind_book_field!(subtitle, "subtitle");
     bind_book_field!(original_title, "original_title");

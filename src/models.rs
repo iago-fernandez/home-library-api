@@ -252,6 +252,7 @@ pub struct ExportRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateBookPartialDto {
+    pub library_id: Option<Uuid>,
     pub title: Option<String>,
     pub subtitle: Option<String>,
     pub original_title: Option<String>,
