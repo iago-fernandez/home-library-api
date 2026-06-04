@@ -37,6 +37,12 @@ async fn main() {
         .await
         .expect("Failed to create pool");
 
+    // Run migrations automatically on startup
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         if args[1] == "create-user" && args.len() == 4 {
@@ -87,7 +93,11 @@ async fn main() {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+        ]);
 
     let app = Router::new()
 
