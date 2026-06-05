@@ -328,10 +328,25 @@ pub async fn create_book(
 }
 
 pub async fn delete_book(pool: &PgPool, book_id: Uuid) -> Result<u64, sqlx::Error> {
+    let book_info = sqlx::query!("SELECT cover_url FROM books WHERE id = $1", book_id)
+        .fetch_optional(pool)
+        .await?;
+
     let result = sqlx::query("DELETE FROM books WHERE id = $1")
         .bind(book_id)
         .execute(pool)
         .await?;
+
+    if result.rows_affected() > 0 {
+        if let Some(b) = book_info {
+            if let Some(cover_url) = b.cover_url {
+                if cover_url.starts_with("/static/") {
+                    let local_path = cover_url.replace("/static/", "uploads/");
+                    let _ = std::fs::remove_file(local_path);
+                }
+            }
+        }
+    }
 
     Ok(result.rows_affected())
 }
@@ -458,10 +473,25 @@ pub async fn update_book(
 }
 
 pub async fn delete_books_batch(pool: &PgPool, book_ids: Vec<Uuid>) -> Result<u64, sqlx::Error> {
+    let books_info = sqlx::query!("SELECT cover_url FROM books WHERE id = ANY($1)", &book_ids)
+        .fetch_all(pool)
+        .await?;
+
     let result = sqlx::query("DELETE FROM books WHERE id = ANY($1)")
-        .bind(book_ids)
+        .bind(&book_ids)
         .execute(pool)
         .await?;
+
+    if result.rows_affected() > 0 {
+        for b in books_info {
+            if let Some(cover_url) = b.cover_url {
+                if cover_url.starts_with("/static/") {
+                    let local_path = cover_url.replace("/static/", "uploads/");
+                    let _ = std::fs::remove_file(local_path);
+                }
+            }
+        }
+    }
 
     Ok(result.rows_affected())
 }
