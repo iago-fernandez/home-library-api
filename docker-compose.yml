@@ -31,5 +31,14 @@ services:
       database:
         condition: service_healthy
 
+  app:
+    build: ../home-library-app
+    container_name: library_app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
