@@ -11,6 +11,9 @@ COPY src ./src
 COPY .env ./
 COPY migrations ./migrations
 COPY fonts ./fonts
+COPY .sqlx ./.sqlx
+
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 FROM debian:bookworm-slim
