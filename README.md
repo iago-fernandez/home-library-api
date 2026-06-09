@@ -14,9 +14,11 @@ A high-performance, asynchronous REST API engineered for physical asset manageme
 Designed with a strict focus on memory safety, temporal efficiency, and architectural cleanliness:
 
 * **Asynchronous I/O:** Built on top of the Tokio runtime and Axum web framework to handle highly concurrent network requests with minimal thread-blocking overhead.
-* **Compile-Time SQL Verification:** Utilizes SQLx to ensure all database queries and schema architectures are validated against the PostgreSQL database during the compilation phase, eliminating runtime syntax errors.
-* **Dynamic Query Engine:** Implements a custom parameter parsing algorithm that maps URL operational suffixes (e.g., `_gte`, `_contains`) directly to optimized SQL operators, allowing for infinite combinations of filters in a single request.
+* **Compile-Time SQL Verification:** Utilizes SQLx to ensure all database queries and schema architectures are strictly validated against the PostgreSQL database during the compilation phase, eliminating runtime syntax errors.
+* **Cryptographic Security:** Implements state-of-the-art Argon2 password hashing algorithms for secure user authentication, issuing HTTP-Only compatible JWTs for stateless authorization.
+* **Dynamic Query Engine:** Implements a custom parameter parsing algorithm that maps URL operational suffixes (e.g., `_gte`, `_contains`) directly to optimized PostgreSQL operators, allowing for infinite combinations of filters in a single request.
 * **External Metadata Proxy:** Integrates `reqwest` to asynchronously resolve exact ISBNs and search terms against the Open Library API, streamlining data entry via a unified backend proxy.
+* **Multi-Tenant Architecture:** The system fundamentally isolates user data through a unified `Library` abstraction, allowing for robust permission models and shared library access between multiple authenticated users.
 * **Clean Code Philosophy:** Relies on strict typing, idiomatic Rust paradigms (let-chaining), and expressive naming conventions in place of redundant comments.
 
 ## Deployment Topology
@@ -70,15 +72,31 @@ The API will be instantly available on `http://localhost:3000`.
 
 ### Standard Operations
 
-* `GET /books`: Retrieve the inventory. Supports pagination (`limit`, `offset`) and sorting (`sort_by`, `sort_order`).
-* `POST /books`: Register a new physical asset.
-* `PUT /books/:id`: Update an existing record.
-* `DELETE /books/:id`: Remove a record from the database.
+### Authentication & Authorization
+
+* `POST /auth/login`: Issue an Argon2 validated JWT for subsequent stateless requests.
+* `GET /api/users/me`: Fetch the current authenticated user's profile data.
+* `PUT /api/users/me`: Update the current authenticated user's profile data.
+
+### Library Management
+
+* `GET /api/libraries`: Fetch all libraries the authenticated user has access to.
+* `POST /api/libraries`: Create a new personal library.
+* `GET /api/libraries/:id/members`: Fetch all members with access to a specific library.
+* `POST /api/libraries/:id/share`: Grant another user access to the library (View/Edit roles).
+
+### Physical Asset Operations
+
+* `GET /api/books`: Retrieve the inventory for a specified library. Supports pagination (`limit`, `offset`) and sorting (`sort_by`, `sort_order`).
+* `POST /api/books`: Register a new physical asset.
+* `PUT /api/books/:id`: Update an existing record.
+* `DELETE /api/books/:id`: Remove a record from the database.
+* `POST /api/upload/cover`: Securely upload and store custom cover image binaries.
 
 ### External Metadata Resolution
 
-* `GET /books/lookup/:isbn`: Fetch precise book metadata utilizing the Open Library API.
-* `GET /books/search-metadata?q=term`: Retrieve an array of potential book matches based on authors or titles.
+* `GET /api/lookup/search?q=term`: Retrieve an array of potential book matches based on authors or titles.
+* `GET /api/lookup/autocomplete?field=...`: Dynamically suggest taxonomy terms based on the existing database.
 
 ## Advanced Query Engine Syntax
 
