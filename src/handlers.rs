@@ -24,6 +24,23 @@ use crate::{
     repository,
 };
 
+static PDF_FONT_FAMILY: std::sync::OnceLock<genpdf::fonts::FontFamily<genpdf::fonts::FontData>> = std::sync::OnceLock::new();
+
+fn format_date(date_str: &str, fmt: Option<&String>) -> String {
+    if let Some(format) = fmt {
+        let chrono_fmt = match format.as_str() {
+            "DD/MM/YYYY" => "%d/%m/%Y",
+            "MM/DD/YYYY" => "%m/%d/%Y",
+            "YYYY/MM/DD" => "%Y/%m/%d",
+            _ => "%Y-%m-%d",
+        };
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            return date.format(chrono_fmt).to_string();
+        }
+    }
+    date_str.to_string()
+}
+
 #[derive(FromRow)]
 struct UserAuthRecord {
     id: Uuid,
@@ -240,7 +257,11 @@ pub async fn export_csv(
     let requested_columns: Vec<String> = if payload.columns.is_empty() { vec!["id".to_string(), "title".to_string()] } else { payload.columns.into_iter().filter(|c| c != "cover_url").collect() };
 
     let mut csv_data = String::from("\u{FEFF}");
-    csv_data.push_str(&requested_columns.join(";"));
+    
+    let header_row: Vec<String> = requested_columns.iter().map(|col| {
+        payload.column_labels.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase())
+    }).collect();
+    csv_data.push_str(&header_row.join(";"));
     csv_data.push('\n');
 
     if let Ok(books) = books_result {
@@ -249,7 +270,13 @@ pub async fn export_csv(
             let mut row_values = Vec::new();
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
-                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::String(s)) => {
+                        if col.contains("date") {
+                            format_date(s, payload.date_format.as_ref())
+                        } else {
+                            s.to_string()
+                        }
+                    },
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
                     Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
@@ -276,14 +303,23 @@ pub async fn export_xml(claims: Claims, State(pool): State<PgPool>, Json(payload
             xml_data.push_str("  <book>\n");
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
-                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::String(s)) => {
+                        if col.contains("date") {
+                            format_date(s, payload.date_format.as_ref())
+                        } else {
+                            s.to_string()
+                        }
+                    },
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
                     Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
                     _ => "".to_string(),
                 };
                 let safe_val = cell_val.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;");
-                xml_data.push_str(&format!("    <{}>{}</{}>\n", col, safe_val, col));
+                let label = payload.column_labels.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.clone());
+                // XML tags can't have spaces, so replace spaces with underscores if using labels
+                let tag_name = label.replace(" ", "_").to_lowercase();
+                xml_data.push_str(&format!("    <{}>{}</{}>\n", tag_name, safe_val, tag_name));
             }
             xml_data.push_str("  </book>\n");
         }
@@ -296,24 +332,26 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     let books_result = repository::fetch_all_for_export(&pool, &payload.filters, payload.specific_ids, claims.sub).await;
     let requested_columns: Vec<String> = if payload.columns.is_empty() { vec!["title".to_string()] } else { payload.columns.into_iter().filter(|c| c != "cover_url").collect() };
 
-    let font_family = match genpdf::fonts::from_files("fonts", "Roboto", None) {
-        Ok(f) => f,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Font missing".to_string()).into_response(),
-    };
+    let font_family = PDF_FONT_FAMILY.get_or_init(|| {
+        genpdf::fonts::from_files("fonts", "Roboto", None).expect("Failed to load fonts")
+    }).clone();
 
     let mut doc = genpdf::Document::new(font_family);
     doc.set_paper_size(genpdf::Size { width: genpdf::Mm::from(297.0), height: genpdf::Mm::from(210.0) });
 
     let mut decorator = genpdf::SimplePageDecorator::new();
-    decorator.set_margins(5);
+    decorator.set_margins(10);
     doc.set_page_decorator(decorator);
-    doc.set_font_size(6);
+    doc.set_font_size(9);
 
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
-    table.set_cell_decorator(genpdf::elements::FrameCellDecorator::new(true, true, false));
+    table.set_cell_decorator(genpdf::elements::FrameCellDecorator::new(true, false, false));
 
     let mut header_row = table.row();
-    for col in &requested_columns { header_row.push_element(genpdf::elements::Paragraph::new(col.replace("_", " ").to_uppercase())); }
+    for col in &requested_columns { 
+        let label = payload.column_labels.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase());
+        header_row.push_element(genpdf::elements::Paragraph::new(label)); 
+    }
     header_row.push().unwrap_or_default();
 
     if let Ok(books) = books_result {
@@ -322,7 +360,13 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
             let mut row = table.row();
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
-                    Some(serde_json::Value::String(s)) => s.to_string(),
+                    Some(serde_json::Value::String(s)) => {
+                        if col.contains("date") {
+                            format_date(s, payload.date_format.as_ref())
+                        } else {
+                            s.to_string()
+                        }
+                    },
                     Some(serde_json::Value::Array(a)) => a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>().join(", "),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
                     Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
