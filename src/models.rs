@@ -248,6 +248,8 @@ pub struct ExportRequest {
     pub filters: BookFilterQuery,
     pub columns: Vec<String>,
     pub specific_ids: Option<Vec<Uuid>>,
+    pub column_labels: Option<std::collections::HashMap<String, String>>,
+    pub date_format: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
