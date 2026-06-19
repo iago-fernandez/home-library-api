@@ -27,6 +27,7 @@ use crate::{
 static PDF_FONT_FAMILY: std::sync::OnceLock<genpdf::fonts::FontFamily<genpdf::fonts::FontData>> = std::sync::OnceLock::new();
 
 fn format_date(date_str: &str, fmt: Option<&String>) -> String {
+    let date_only = date_str.split('T').next().unwrap_or(date_str);
     if let Some(format) = fmt {
         let chrono_fmt = match format.as_str() {
             "DD/MM/YYYY" => "%d/%m/%Y",
@@ -34,11 +35,69 @@ fn format_date(date_str: &str, fmt: Option<&String>) -> String {
             "YYYY/MM/DD" => "%Y/%m/%d",
             _ => "%Y-%m-%d",
         };
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_only, "%Y-%m-%d") {
             return date.format(chrono_fmt).to_string();
         }
     }
-    date_str.to_string()
+    date_only.to_string()
+}
+
+#[derive(Clone)]
+struct CleanTableDecorator {
+    num_columns: usize,
+    num_rows: usize,
+}
+
+impl CleanTableDecorator {
+    fn new() -> Self {
+        Self { num_columns: 0, num_rows: 0 }
+    }
+}
+
+impl genpdf::elements::CellDecorator for CleanTableDecorator {
+    fn set_table_size(&mut self, num_columns: usize, num_rows: usize) {
+        self.num_columns = num_columns;
+        self.num_rows = num_rows;
+    }
+
+    fn decorate_cell(
+        &mut self,
+        _column: usize,
+        row: usize,
+        _has_more: bool,
+        area: genpdf::render::Area<'_>,
+        _style: genpdf::style::Style,
+    ) {
+        let size = area.size();
+        
+        // Header row (row 0)
+        if row == 0 {
+            // Draw a thicker black line at the bottom of the header
+            let mut style = genpdf::style::Style::default();
+            style.set_color(genpdf::style::Color::Rgb(0, 0, 0));
+            
+            // Draw border top
+            area.draw_line(
+                vec![
+                    genpdf::Position::new(0, size.height),
+                    genpdf::Position::new(size.width, size.height),
+                ],
+                style,
+            );
+        } else {
+            // Data rows: Draw a very light gray line at the bottom
+            let mut style = genpdf::style::Style::default();
+            style.set_color(genpdf::style::Color::Rgb(220, 220, 220));
+            
+            area.draw_line(
+                vec![
+                    genpdf::Position::new(0, size.height),
+                    genpdf::Position::new(size.width, size.height),
+                ],
+                style,
+            );
+        }
+    }
 }
 
 #[derive(FromRow)]
@@ -271,7 +330,7 @@ pub async fn export_csv(
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
@@ -304,7 +363,7 @@ pub async fn export_xml(claims: Claims, State(pool): State<PgPool>, Json(payload
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
@@ -345,7 +404,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     doc.set_font_size(9);
 
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
-    table.set_cell_decorator(genpdf::elements::FrameCellDecorator::new(true, false, false));
+    table.set_cell_decorator(CleanTableDecorator::new());
 
     let mut header_row = table.row();
     for col in &requested_columns { 
@@ -361,7 +420,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
