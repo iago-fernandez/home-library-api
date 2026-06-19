@@ -45,8 +45,8 @@ fn format_date(date_str: &str, fmt: Option<&String>) -> String {
             return dt.format(chrono_fmt).to_string();
         }
         if let Ok(d) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-            let dt = d.and_hms_opt(0, 0, 0).unwrap_or(d.and_hms_opt(0, 0, 0).unwrap());
-            return dt.format(chrono_fmt).to_string();
+            let pure_date_fmt = chrono_fmt.replace(" %H:%M:%S", "");
+            return d.format(&pure_date_fmt).to_string();
         }
     }
     date_str.to_string()
