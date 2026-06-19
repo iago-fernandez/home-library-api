@@ -29,16 +29,85 @@ static PDF_FONT_FAMILY: std::sync::OnceLock<genpdf::fonts::FontFamily<genpdf::fo
 fn format_date(date_str: &str, fmt: Option<&String>) -> String {
     if let Some(format) = fmt {
         let chrono_fmt = match format.as_str() {
+            "dd/mm/yyyy hh:mm:ss" => "%d/%m/%Y %H:%M:%S",
+            "dd/mm/yyyy" => "%d/%m/%Y",
+            "mm/dd/yyyy hh:mm:ss" => "%m/%d/%Y %H:%M:%S",
+            "mm/dd/yyyy" => "%m/%d/%Y",
+            "yyyy-mm-dd hh:mm:ss" => "%Y-%m-%d %H:%M:%S",
+            "yyyy-mm-dd" => "%Y-%m-%d",
             "DD/MM/YYYY" => "%d/%m/%Y",
             "MM/DD/YYYY" => "%m/%d/%Y",
             "YYYY/MM/DD" => "%Y/%m/%d",
             _ => "%Y-%m-%d",
         };
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-            return date.format(chrono_fmt).to_string();
+
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date_str) {
+            return dt.format(chrono_fmt).to_string();
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            let dt = d.and_hms_opt(0, 0, 0).unwrap_or(d.and_hms_opt(0, 0, 0).unwrap());
+            return dt.format(chrono_fmt).to_string();
         }
     }
     date_str.to_string()
+}
+
+#[derive(Clone)]
+struct CleanTableDecorator {
+    num_columns: usize,
+    num_rows: usize,
+}
+
+impl CleanTableDecorator {
+    fn new() -> Self {
+        Self { num_columns: 0, num_rows: 0 }
+    }
+}
+
+impl genpdf::elements::CellDecorator for CleanTableDecorator {
+    fn set_table_size(&mut self, num_columns: usize, num_rows: usize) {
+        self.num_columns = num_columns;
+        self.num_rows = num_rows;
+    }
+
+    fn decorate_cell(
+        &mut self,
+        _column: usize,
+        row: usize,
+        _has_more: bool,
+        area: genpdf::render::Area<'_>,
+        _style: genpdf::style::Style,
+    ) {
+        let size = area.size();
+        
+        // Header row (row 0)
+        if row == 0 {
+            // Draw a thicker black line at the bottom of the header
+            let mut style = genpdf::style::Style::default();
+            style.set_color(genpdf::style::Color::Rgb(0, 0, 0));
+            
+            // Draw border top
+            area.draw_line(
+                vec![
+                    genpdf::Position::new(0, size.height),
+                    genpdf::Position::new(size.width, size.height),
+                ],
+                style,
+            );
+        } else {
+            // Data rows: Draw a very light gray line at the bottom
+            let mut style = genpdf::style::Style::default();
+            style.set_color(genpdf::style::Color::Rgb(220, 220, 220));
+            
+            area.draw_line(
+                vec![
+                    genpdf::Position::new(0, size.height),
+                    genpdf::Position::new(size.width, size.height),
+                ],
+                style,
+            );
+        }
+    }
 }
 
 #[derive(FromRow)]
@@ -271,7 +340,7 @@ pub async fn export_csv(
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
@@ -304,7 +373,7 @@ pub async fn export_xml(claims: Claims, State(pool): State<PgPool>, Json(payload
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
@@ -342,15 +411,27 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     let mut decorator = genpdf::SimplePageDecorator::new();
     decorator.set_margins(10);
     doc.set_page_decorator(decorator);
-    doc.set_font_size(9);
+
+    let font_size = match requested_columns.len() {
+        0..=5 => 10,
+        6..=8 => 9,
+        9..=12 => 8,
+        _ => 7,
+    };
+    doc.set_font_size(font_size);
 
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
-    table.set_cell_decorator(genpdf::elements::FrameCellDecorator::new(true, false, false));
+    table.set_cell_decorator(CleanTableDecorator::new());
 
     let mut header_row = table.row();
     for col in &requested_columns { 
         let label = payload.column_labels.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase());
-        header_row.push_element(genpdf::elements::Paragraph::new(label)); 
+        header_row.push_element(
+            genpdf::elements::PaddedElement::new(
+                genpdf::elements::Paragraph::new(label),
+                genpdf::Margins::trbl(1.5, 1.0, 1.5, 1.0)
+            )
+        ); 
     }
     header_row.push().unwrap_or_default();
 
@@ -361,7 +442,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
             for col in &requested_columns {
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
-                        if col.contains("date") {
+                        if col.contains("date") || col.ends_with("_at") {
                             format_date(s, payload.date_format.as_ref())
                         } else {
                             s.to_string()
@@ -372,7 +453,12 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
                     Some(serde_json::Value::Bool(b)) => if *b { "Yes".to_string() } else { "No".to_string() },
                     _ => "".to_string(),
                 };
-                row.push_element(genpdf::elements::Paragraph::new(cell_val));
+                row.push_element(
+                    genpdf::elements::PaddedElement::new(
+                        genpdf::elements::Paragraph::new(cell_val),
+                        genpdf::Margins::trbl(1.5, 1.0, 1.5, 1.0)
+                    )
+                );
             }
             row.push().unwrap_or_default();
         }
