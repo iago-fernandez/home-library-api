@@ -91,7 +91,7 @@ pub fn apply_sorting<'a>(query_params: &'a BookFilterQuery, query: &mut QueryBui
         "created_at", "updated_at", "purchase_price", "authors", "publisher",
         "isbn_13", "location_room", "location_bookcase", "subtitle", "original_title",
         "translators", "illustrators", "original_publish_date", "isbn_10", "oclc_number",
-        "open_library_id", "edition_number", "printing_number", "original_edition",
+        "open_library_id", "edition", "edition_number", "printing_number", "original_edition",
         "is_first_edition", "collection_name", "volume_in_collection", "series_name",
         "volume_in_series", "book_format", "dimensions", "weight", "language",
         "original_language", "subjects", "genres", "target_audience", "purchase_date",
@@ -154,8 +154,8 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
     let full_field = format!("{}.{}", prefix, field);
 
     let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "table_of_contents", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf", "loaned_to", "dimensions", "weight"];
-    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10", "oclc_number", "open_library_id", "edition_number", "printing_number", "original_edition"];
-    let numeric_columns = ["catalog_number", "page_count", "rating", "volume_in_collection", "volume_in_series", "purchase_price", "location_position"];
+    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10", "oclc_number", "open_library_id", "edition", "edition_number", "printing_number", "original_edition"];
+    let numeric_columns = ["catalog_number", "page_count", "edition_number", "rating", "volume_in_collection", "volume_in_series", "purchase_price", "location_position"];
     let date_columns = ["publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished", "loan_date", "expected_return_date", "created_at", "updated_at"];
     let boolean_columns = ["is_first_edition", "is_loaned"];
 
@@ -237,7 +237,7 @@ pub async fn create_book(
         INSERT INTO books (
             library_id, isbn_13, isbn_10, open_library_id, oclc_number, title, subtitle, original_title,
             authors, translators, illustrators, publisher, publish_date, original_publish_date,
-            edition_number, printing_number, original_edition, is_first_edition, collection_name,
+            edition, edition_number, printing_number, original_edition, is_first_edition, collection_name,
             volume_in_collection, series_name, volume_in_series, book_format, page_count,
             dimensions, weight, language, original_language, subjects, genres, target_audience,
             description, table_of_contents, cover_url, purchase_date, purchase_price,
@@ -247,7 +247,7 @@ pub async fn create_book(
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
             $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48
+            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49
         )
         RETURNING id
         "#,
@@ -266,6 +266,7 @@ pub async fn create_book(
         .bind(&payload.publisher)
         .bind(&payload.publish_date)
         .bind(&payload.original_publish_date)
+        .bind(&payload.edition)
         .bind(&payload.edition_number)
         .bind(&payload.printing_number)
         .bind(&payload.original_edition)
@@ -374,16 +375,16 @@ pub async fn update_book(
         UPDATE books SET
             library_id = $1, isbn_13 = $2, isbn_10 = $3, open_library_id = $4, oclc_number = $5, title = $6,
             subtitle = $7, original_title = $8, authors = $9, translators = $10, illustrators = $11,
-            publisher = $12, publish_date = $13, original_publish_date = $14, edition_number = $15,
-            printing_number = $16, original_edition = $17, is_first_edition = $18, collection_name = $19,
-            volume_in_collection = $20, series_name = $21, volume_in_series = $22, book_format = $23,
-            page_count = $24, dimensions = $25, weight = $26, language = $27, original_language = $28,
-            subjects = $29, genres = $30, target_audience = $31, description = $32, table_of_contents = $33,
-            cover_url = $34, purchase_date = $35, purchase_price = $36, store_or_vendor = $37,
-            acquisition_type = $38, location_property = $39, location_room = $40, location_bookcase = $41,
-            location_shelf = $42, location_position = $43, condition_state = $44, is_loaned = $45,
-            loaned_to = $46, loan_date = $47, expected_return_date = $48
-        WHERE id = $49
+            publisher = $12, publish_date = $13, original_publish_date = $14, edition = $15, edition_number = $16,
+            printing_number = $17, original_edition = $18, is_first_edition = $19, collection_name = $20,
+            volume_in_collection = $21, series_name = $22, volume_in_series = $23, book_format = $24,
+            page_count = $25, dimensions = $26, weight = $27, language = $28, original_language = $29,
+            subjects = $30, genres = $31, target_audience = $32, description = $33, table_of_contents = $34,
+            cover_url = $35, purchase_date = $36, purchase_price = $37, store_or_vendor = $38,
+            acquisition_type = $39, location_property = $40, location_room = $41, location_bookcase = $42,
+            location_shelf = $43, location_position = $44, condition_state = $45, is_loaned = $46,
+            loaned_to = $47, loan_date = $48, expected_return_date = $49
+        WHERE id = $50
         "#
     )
         .bind(library_id)
@@ -400,6 +401,7 @@ pub async fn update_book(
         .bind(&payload.publisher)
         .bind(&payload.publish_date)
         .bind(&payload.original_publish_date)
+        .bind(&payload.edition)
         .bind(&payload.edition_number)
         .bind(&payload.printing_number)
         .bind(&payload.original_edition)
@@ -571,6 +573,7 @@ pub async fn patch_book(
     bind_book_field!(publisher, "publisher");
     bind_book_field!(publish_date, "publish_date");
     bind_book_field!(original_publish_date, "original_publish_date");
+    bind_book_field!(edition, "edition");
     bind_book_field!(edition_number, "edition_number");
     bind_book_field!(printing_number, "printing_number");
     bind_book_field!(original_edition, "original_edition");
