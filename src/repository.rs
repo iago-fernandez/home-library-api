@@ -42,11 +42,13 @@ pub async fn fetch_books(
     apply_filters(&query_params, &mut count_query);
     apply_sorting(&query_params, &mut query);
 
-    let limit = query_params.limit.unwrap_or(50).clamp(1, 100);
-    let offset = query_params.offset.unwrap_or(0).max(0);
-
-    query.push(" LIMIT ").push_bind(limit);
-    query.push(" OFFSET ").push_bind(offset);
+    if let Some(limit) = query_params.limit {
+        query.push(" LIMIT ").push_bind(limit.clamp(1, 100000));
+    }
+    
+    if let Some(offset) = query_params.offset {
+        query.push(" OFFSET ").push_bind(offset.max(0));
+    }
 
     let books = query.build_query_as::<Book>().fetch_all(pool).await?;
     let total_count: (i64,) = count_query.build_query_as().fetch_one(pool).await?;
