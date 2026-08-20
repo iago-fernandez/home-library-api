@@ -20,8 +20,7 @@ fn http_client() -> reqwest::Client {
 async fn fetch_google_books_metadata(identifier: &str) -> Result<Option<BookMetadataResponse>, reqwest::Error> {
     let clean_id = identifier.replace("-", "").replace(" ", "").to_uppercase();
     
-    // Google books mostly supports ISBNs and general search well. OCLC/OLID are OpenLibrary specific.
-    // If it's an OLID, Google Books probably won't find it via q=isbn: but we can try q= clean_id.
+    // Google Books API uses ISBN and general search strings. OLID identifiers may yield suboptimal results.
     let query = if clean_id.starts_with("OL") || clean_id.starts_with("OCLC") {
         clean_id.clone()
     } else {
@@ -48,7 +47,7 @@ async fn fetch_google_books_metadata(identifier: &str) -> Result<Option<BookMeta
                 let cover_url = vol_info.get("imageLinks")
                     .and_then(|imgs| imgs.get("thumbnail").or(imgs.get("smallThumbnail")))
                     .and_then(|url| url.as_str())
-                    .map(|url| url.replace("http:", "https:")); // Ensure HTTPS
+                    .map(|url| url.replace("http:", "https:")); // Enforce HTTPS protocol
 
                 let extract_array = |key: &str| -> Option<Vec<String>> {
                     let mut list = Vec::new();
@@ -218,15 +217,34 @@ async fn fetch_openlibrary_metadata(identifier: &str) -> Result<BookMetadataResp
 
 
 pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, reqwest::Error> {
-    // 1. Try Google Books First
+    let mut google_metadata = None;
     if let Ok(Some(metadata)) = fetch_google_books_metadata(identifier).await {
         if metadata.title.is_some() {
-            return Ok(metadata);
+            if metadata.cover_url.is_some() {
+                return Ok(metadata);
+            }
+            // Preserve metadata and fetch cover from OpenLibrary API
+            google_metadata = Some(metadata);
         }
     }
-    
-    // 2. Fallback to OpenLibrary
-    fetch_openlibrary_metadata(identifier).await
+
+    match fetch_openlibrary_metadata(identifier).await {
+        Ok(ol_metadata) => {
+            if let Some(mut g_meta) = google_metadata {
+                g_meta.cover_url = ol_metadata.cover_url.or(g_meta.cover_url);
+                Ok(g_meta)
+            } else {
+                Ok(ol_metadata)
+            }
+        },
+        Err(e) => {
+            if let Some(g_meta) = google_metadata {
+                Ok(g_meta)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 async fn search_google_books_metadata(query: &str) -> Result<Vec<BookMetadataResponse>, reqwest::Error> {
@@ -371,13 +389,13 @@ async fn search_openlibrary_metadata(query: &str) -> Result<Vec<BookMetadataResp
 }
 
 pub async fn search_metadata_by_query(query: &str) -> Result<Vec<BookMetadataResponse>, reqwest::Error> {
-    // 1. Try Google Books First
+    // Attempt fetching from Google Books API
     if let Ok(results) = search_google_books_metadata(query).await {
         if !results.is_empty() {
             return Ok(results);
         }
     }
     
-    // 2. Fallback to OpenLibrary
+    // Attempt fetching from OpenLibrary API as fallback
     search_openlibrary_metadata(query).await
 }
