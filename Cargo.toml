@@ -17,7 +17,7 @@ uuid = { version = "1.23.1", features = ["v4", "serde"] }
 reqwest = { version = "0.13.3", features = ["json"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-tower-http = { version = "0.6.9", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6.9", features = ["cors", "trace", "fs", "compression-full"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 csv = "1.4.0"
 quick-xml = { version = "0.39.3", features = ["serialize"] }
