@@ -4,7 +4,8 @@ mod integration;
 mod models;
 mod repository;
 
-use axum::{
+use axum::{extract::DefaultBodyLimit,
+
     routing::{delete, get, post, put},
     Router,
 };
@@ -15,6 +16,7 @@ use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+use tower_http::compression::CompressionLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -31,8 +33,8 @@ async fn main() {
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(3))
+        .max_connections(50)
+        .acquire_timeout(Duration::from_secs(30))
         .connect(&database_url)
         .await
         .expect("Failed to create pool");
@@ -120,6 +122,8 @@ async fn main() {
         .nest_service("/static", ServeDir::new("uploads"))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
+        .layer(DefaultBodyLimit::disable())
         .with_state(pool);
 
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());

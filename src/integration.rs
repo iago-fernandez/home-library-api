@@ -1,5 +1,19 @@
 use crate::models::BookMetadataResponse;
 use serde_json::Value;
+use std::sync::OnceLock;
+
+
+fn http_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        let user_agent = format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        reqwest::Client::builder()
+            .user_agent(user_agent)
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap()
+    }).clone()
+}
 
 pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, reqwest::Error> {
     let clean_id = identifier.replace("-", "").replace(" ", "").to_uppercase();
@@ -20,7 +34,7 @@ pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, re
         bibkey
     );
 
-    let response = reqwest::get(&url).await?;
+    let response = http_client().get(&url).send().await?;
     let raw_data: Value = response.json().await?;
 
     let book_data = match raw_data.as_object().and_then(|obj| obj.values().next()) {
@@ -131,7 +145,7 @@ pub async fn search_metadata_by_query(
     query: &str,
 ) -> Result<Vec<BookMetadataResponse>, reqwest::Error> {
     let url = format!("https://openlibrary.org/search.json?q={}&limit=5", query);
-    let response = reqwest::get(&url).await?;
+    let response = http_client().get(&url).send().await?;
     let raw_data: Value = response.json().await?;
 
     let mut results = Vec::new();
