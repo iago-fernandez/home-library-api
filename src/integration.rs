@@ -27,7 +27,10 @@ async fn fetch_google_books_metadata(identifier: &str) -> Result<Option<BookMeta
         format!("isbn:{}", clean_id)
     };
 
-    let url = format!("https://www.googleapis.com/books/v1/volumes?q={}", query);
+    let mut url = format!("https://www.googleapis.com/books/v1/volumes?q={}", query);
+    if let Ok(api_key) = env::var("GOOGLE_BOOKS_API_KEY") {
+        url = format!("{}&key={}", url, api_key);
+    }
     
     let response = http_client().get(&url).send().await?;
     let raw_data: Value = response.json().await?;
@@ -226,7 +229,10 @@ pub async fn fetch_metadata(identifier: &str) -> Result<BookMetadataResponse, re
 }
 
 async fn search_google_books_metadata(query: &str) -> Result<Vec<BookMetadataResponse>, reqwest::Error> {
-    let url = format!("https://www.googleapis.com/books/v1/volumes?q={}&maxResults=5", query);
+    let mut url = format!("https://www.googleapis.com/books/v1/volumes?q={}&maxResults=5", query);
+    if let Ok(api_key) = env::var("GOOGLE_BOOKS_API_KEY") {
+        url = format!("{}&key={}", url, api_key);
+    }
     let response = http_client().get(&url).send().await?;
     let raw_data: Value = response.json().await?;
 
