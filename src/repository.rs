@@ -187,7 +187,15 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
             }
         } else { query.push(" 1=0 "); }
     } else if date_columns.contains(&field) {
-        if let Ok(date_val) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        let mut parsed_date = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").ok();
+        
+        if parsed_date.is_none() && value.len() == 4 {
+            if let Ok(year) = value.parse::<i32>() {
+                parsed_date = chrono::NaiveDate::from_ymd_opt(year, 1, 1);
+            }
+        }
+
+        if let Some(date_val) = parsed_date {
             match operator {
                 "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(date_val); }
                 "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(date_val); }
