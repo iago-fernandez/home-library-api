@@ -416,10 +416,9 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     let mut doc = genpdf::Document::new(font_family);
     doc.set_paper_size(genpdf::Size { width: genpdf::Mm::from(297.0), height: genpdf::Mm::from(210.0) });
 
-    let mut decorator = genpdf::SimplePageDecorator::new();
-    decorator.set_margins(10);
-    doc.set_page_decorator(decorator);
-
+    let requested_columns_clone = requested_columns.clone();
+    let column_labels_clone = payload.column_labels.clone();
+    
     let font_size = match requested_columns.len() {
         0..=5 => 10,
         6..=8 => 9,
@@ -428,20 +427,31 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     };
     doc.set_font_size(font_size);
 
+    let mut decorator = genpdf::SimplePageDecorator::new();
+    decorator.set_margins(10);
+    decorator.set_header(move |_page| {
+        let mut header_table = genpdf::elements::TableLayout::new(vec![1; requested_columns_clone.len()]);
+        header_table.set_cell_decorator(CleanTableDecorator::new());
+        let mut header_row = header_table.row();
+        for col in &requested_columns_clone {
+            let label = column_labels_clone.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase());
+            
+            let paragraph = genpdf::elements::Paragraph::new(label);
+            
+            header_row.push_element(
+                genpdf::elements::PaddedElement::new(
+                    paragraph,
+                    genpdf::Margins::trbl(1.5, 1.0, 1.5, 1.0)
+                )
+            );
+        }
+        header_row.push().unwrap_or_default();
+        header_table
+    });
+    doc.set_page_decorator(decorator);
+
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
     table.set_cell_decorator(CleanTableDecorator::new());
-
-    let mut header_row = table.row();
-    for col in &requested_columns { 
-        let label = payload.column_labels.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase());
-        header_row.push_element(
-            genpdf::elements::PaddedElement::new(
-                genpdf::elements::Paragraph::new(label),
-                genpdf::Margins::trbl(1.5, 1.0, 1.5, 1.0)
-            )
-        ); 
-    }
-    header_row.push().unwrap_or_default();
 
     if let Ok(books) = books_result {
         for book in books {
