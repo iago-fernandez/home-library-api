@@ -26,7 +26,15 @@ use crate::{
 
 static PDF_FONT_FAMILY: std::sync::OnceLock<genpdf::fonts::FontFamily<genpdf::fonts::FontData>> = std::sync::OnceLock::new();
 
-fn format_date(date_str: &str, fmt: Option<&String>) -> String {
+fn format_date(date_str: &str, fmt: Option<&String>, field_name: &str) -> String {
+    if field_name == "publish_date" || field_name == "original_publish_date" {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date_str) {
+            return dt.format("%Y").to_string();
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            return d.format("%Y").to_string();
+        }
+    }
     if let Some(format) = fmt {
         let chrono_fmt = match format.as_str() {
             "dd/mm/yyyy hh:mm:ss" => "%d/%m/%Y %H:%M:%S",
@@ -341,7 +349,7 @@ pub async fn export_csv(
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
                         if col.contains("date") || col.ends_with("_at") {
-                            format_date(s, payload.date_format.as_ref())
+                            format_date(s, payload.date_format.as_ref(), col)
                         } else {
                             s.to_string()
                         }
@@ -374,7 +382,7 @@ pub async fn export_xml(claims: Claims, State(pool): State<PgPool>, Json(payload
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
                         if col.contains("date") || col.ends_with("_at") {
-                            format_date(s, payload.date_format.as_ref())
+                            format_date(s, payload.date_format.as_ref(), col)
                         } else {
                             s.to_string()
                         }
@@ -443,7 +451,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
                 let cell_val = match json_val.get(col) {
                     Some(serde_json::Value::String(s)) => {
                         if col.contains("date") || col.ends_with("_at") {
-                            format_date(s, payload.date_format.as_ref())
+                            format_date(s, payload.date_format.as_ref(), col)
                         } else {
                             s.to_string()
                         }
