@@ -155,9 +155,10 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
     let prefix = if ubi_fields.contains(&field) { "ubi" } else { "b" };
     let full_field = format!("{}.{}", prefix, field);
 
-    let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "table_of_contents", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf", "loaned_to", "dimensions", "weight"];
-    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10", "oclc_number", "open_library_id", "edition", "edition_number", "printing_number", "original_edition"];
-    let numeric_columns = ["catalog_number", "page_count", "edition_number", "rating", "volume_in_collection", "volume_in_series", "purchase_price", "location_position"];
+    let text_columns = ["title", "subtitle", "original_title", "publisher", "collection_name", "series_name", "description", "table_of_contents", "public_notes", "personal_notes", "reading_notes", "location_property", "location_room", "location_bookcase", "location_shelf", "loaned_to"];
+    let exact_string_columns = ["read_status", "book_format", "condition_state", "target_audience", "language", "original_language", "store_or_vendor", "acquisition_type", "isbn_13", "isbn_10", "oclc_number", "open_library_id", "edition", "original_edition"];
+    let int_columns = ["catalog_number", "page_count", "edition_number", "printing_number", "rating", "volume_in_collection", "volume_in_series", "location_position"];
+    let float_columns = ["purchase_price", "weight", "dimension_length", "dimension_width", "dimension_depth"];
     let date_columns = ["publish_date", "original_publish_date", "purchase_date", "date_started", "date_finished", "loan_date", "expected_return_date", "created_at", "updated_at"];
     let boolean_columns = ["is_first_edition", "is_loaned"];
 
@@ -176,8 +177,18 @@ pub fn apply_condition(field: &str, operator: &str, value: &str, query: &mut Que
             }
             _ => { query.push(format!(" {} ILIKE ", full_field)).push_bind(format!("%{}%", value)); }
         }
-    } else if numeric_columns.contains(&field) {
+    } else if int_columns.contains(&field) {
         if let Ok(num_val) = value.parse::<i32>() {
+            match operator {
+                "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(num_val); }
+                "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(num_val); }
+                "_lt" => { query.push(format!(" {} < ", full_field)).push_bind(num_val); }
+                "_lte" => { query.push(format!(" {} <= ", full_field)).push_bind(num_val); }
+                _ => { query.push(format!(" {} = ", full_field)).push_bind(num_val); }
+            }
+        } else { query.push(" 1=0 "); }
+        } else if float_columns.contains(&field) {
+        if let Ok(num_val) = value.parse::<f32>() {
             match operator {
                 "_gt" => { query.push(format!(" {} > ", full_field)).push_bind(num_val); }
                 "_gte" => { query.push(format!(" {} >= ", full_field)).push_bind(num_val); }
@@ -287,7 +298,9 @@ pub async fn create_book(
         .bind(&payload.volume_in_series)
         .bind(&payload.book_format)
         .bind(&payload.page_count)
-        .bind(&payload.dimensions)
+        .bind(&payload.dimension_length)
+        .bind(&payload.dimension_width)
+        .bind(&payload.dimension_depth)
         .bind(&payload.weight)
         .bind(&payload.language)
         .bind(&payload.original_language)
@@ -325,6 +338,7 @@ pub async fn create_book(
         .bind(book_id)
         .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
         .bind(&payload.rating)
+        .bind(&payload.public_notes)
         .bind(&payload.personal_notes)
         .bind(&payload.reading_notes)
         .bind(&payload.date_started)
@@ -422,7 +436,9 @@ pub async fn update_book(
         .bind(&payload.volume_in_series)
         .bind(&payload.book_format)
         .bind(&payload.page_count)
-        .bind(&payload.dimensions)
+        .bind(&payload.dimension_length)
+        .bind(&payload.dimension_width)
+        .bind(&payload.dimension_depth)
         .bind(&payload.weight)
         .bind(&payload.language)
         .bind(&payload.original_language)
@@ -471,6 +487,7 @@ pub async fn update_book(
         .bind(book_id)
         .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
         .bind(&payload.rating)
+        .bind(&payload.public_notes)
         .bind(&payload.personal_notes)
         .bind(&payload.reading_notes)
         .bind(&payload.date_started)
@@ -594,7 +611,9 @@ pub async fn patch_book(
     bind_book_field!(volume_in_series, "volume_in_series");
     bind_book_field!(book_format, "book_format");
     bind_book_field!(page_count, "page_count");
-    bind_book_field!(dimensions, "dimensions");
+        bind_book_field!(dimension_length, "dimension_length");
+    bind_book_field!(dimension_width, "dimension_width");
+    bind_book_field!(dimension_depth, "dimension_depth");
     bind_book_field!(weight, "weight");
     bind_book_field!(language, "language");
     bind_book_field!(original_language, "original_language");
@@ -614,6 +633,7 @@ pub async fn patch_book(
     bind_book_field!(location_shelf, "location_shelf");
     bind_book_field!(location_position, "location_position");
     bind_book_field!(condition_state, "condition_state");
+    bind_book_field!(public_notes, "public_notes");
     bind_book_field!(is_loaned, "is_loaned");
     bind_book_field!(loaned_to, "loaned_to");
     bind_book_field!(loan_date, "loan_date");
