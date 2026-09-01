@@ -156,14 +156,6 @@ async fn fetch_openlibrary_metadata(identifier: &str) -> Result<BookMetadataResp
         .get("physical_format")
         .and_then(|f| f.as_str())
         .map(String::from);
-    // let weight = book_data
-        .get("weight")
-        .and_then(|w| w.as_str())
-        .map(String::from);
-    // let dimensions = book_data
-        .get("physical_dimensions")
-        .and_then(|d| d.as_str())
-        .map(String::from);
 
     let cover_url = book_data
         .get("cover")
