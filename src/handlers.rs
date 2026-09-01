@@ -64,11 +64,12 @@ fn format_date(date_str: &str, fmt: Option<&String>, field_name: &str) -> String
 struct CleanTableDecorator {
     num_columns: usize,
     num_rows: usize,
+    is_header: bool,
 }
 
 impl CleanTableDecorator {
-    fn new() -> Self {
-        Self { num_columns: 0, num_rows: 0 }
+    fn new(is_header: bool) -> Self {
+        Self { num_columns: 0, num_rows: 0, is_header }
     }
 }
 
@@ -81,40 +82,27 @@ impl genpdf::elements::CellDecorator for CleanTableDecorator {
     fn decorate_cell(
         &mut self,
         _column: usize,
-        row: usize,
+        _row: usize,
         _has_more: bool,
         area: genpdf::render::Area<'_>,
         _style: genpdf::style::Style,
     ) {
         let size = area.size();
+        let mut style = genpdf::style::Style::default();
         
-        // Header row (row 0)
-        if row == 0 {
-            // Draw a thicker black line at the bottom of the header
-            let mut style = genpdf::style::Style::default();
+        if self.is_header {
             style.set_color(genpdf::style::Color::Rgb(0, 0, 0));
-            
-            // Draw border top
-            area.draw_line(
-                vec![
-                    genpdf::Position::new(0, size.height),
-                    genpdf::Position::new(size.width, size.height),
-                ],
-                style,
-            );
         } else {
-            // Data rows: Draw a very light gray line at the bottom
-            let mut style = genpdf::style::Style::default();
             style.set_color(genpdf::style::Color::Rgb(220, 220, 220));
-            
-            area.draw_line(
-                vec![
-                    genpdf::Position::new(0, size.height),
-                    genpdf::Position::new(size.width, size.height),
-                ],
-                style,
-            );
         }
+        
+        area.draw_line(
+            vec![
+                genpdf::Position::new(0, size.height),
+                genpdf::Position::new(size.width, size.height),
+            ],
+            style,
+        );
     }
 }
 
@@ -431,7 +419,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     decorator.set_margins(10);
     decorator.set_header(move |_page| {
         let mut header_table = genpdf::elements::TableLayout::new(vec![1; requested_columns_clone.len()]);
-        header_table.set_cell_decorator(CleanTableDecorator::new());
+        header_table.set_cell_decorator(CleanTableDecorator::new(true));
         let mut header_row = header_table.row();
         for col in &requested_columns_clone {
             let label = column_labels_clone.as_ref().and_then(|m| m.get(col)).cloned().unwrap_or_else(|| col.replace("_", " ").to_uppercase());
@@ -451,7 +439,7 @@ pub async fn export_pdf(claims: Claims, State(pool): State<PgPool>, Json(payload
     doc.set_page_decorator(decorator);
 
     let mut table = genpdf::elements::TableLayout::new(vec![1; requested_columns.len()]);
-    table.set_cell_decorator(CleanTableDecorator::new());
+    table.set_cell_decorator(CleanTableDecorator::new(false));
 
     if let Ok(books) = books_result {
         for book in books {
