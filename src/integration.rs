@@ -77,7 +77,9 @@ async fn fetch_google_books_metadata(identifier: &str) -> Result<Option<BookMeta
                     publishers,
                     physical_format: None,
                     weight: None,
-                    dimensions: None,
+                    dimension_length: None,
+                    dimension_width: None,
+                    dimension_depth: None,
                     subjects,
                     languages: language,
                 }));
@@ -125,7 +127,9 @@ async fn fetch_openlibrary_metadata(identifier: &str) -> Result<BookMetadataResp
                 publishers: None,
                 physical_format: None,
                 weight: None,
-                dimensions: None,
+                dimension_length: None,
+                    dimension_width: None,
+                    dimension_depth: None,
                 subjects: None,
                 languages: None,
             });
@@ -152,11 +156,11 @@ async fn fetch_openlibrary_metadata(identifier: &str) -> Result<BookMetadataResp
         .get("physical_format")
         .and_then(|f| f.as_str())
         .map(String::from);
-    let weight = book_data
+    // let weight = book_data
         .get("weight")
         .and_then(|w| w.as_str())
         .map(String::from);
-    let dimensions = book_data
+    // let dimensions = book_data
         .get("physical_dimensions")
         .and_then(|d| d.as_str())
         .map(String::from);
@@ -208,8 +212,10 @@ async fn fetch_openlibrary_metadata(identifier: &str) -> Result<BookMetadataResp
         subtitle,
         publishers,
         physical_format,
-        weight,
-        dimensions,
+        weight: None, // We will map these correctly later if needed
+        dimension_length: None,
+        dimension_width: None,
+        dimension_depth: None,
         subjects,
         languages,
     })
@@ -308,7 +314,9 @@ async fn search_google_books_metadata(query: &str) -> Result<Vec<BookMetadataRes
                     publishers: None,
                     physical_format: None,
                     weight: None,
-                    dimensions: None,
+                    dimension_length: None,
+                    dimension_width: None,
+                    dimension_depth: None,
                     subjects: None,
                     languages: None,
                 });
@@ -378,7 +386,9 @@ async fn search_openlibrary_metadata(query: &str) -> Result<Vec<BookMetadataResp
                 publishers: None,
                 physical_format: None,
                 weight: None,
-                dimensions: None,
+                dimension_length: None,
+                    dimension_width: None,
+                    dimension_depth: None,
                 subjects: None,
                 languages: None,
             });
