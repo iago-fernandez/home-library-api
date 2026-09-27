@@ -95,7 +95,7 @@ pub fn apply_sorting<'a>(query_params: &'a BookFilterQuery, query: &mut QueryBui
         "translators", "illustrators", "original_publish_date", "isbn_10", "oclc_number",
         "open_library_id", "edition", "edition_number", "printing_number", "original_edition",
         "is_first_edition", "collection_name", "volume_in_collection", "series_name",
-        "volume_in_series", "book_format", "dimensions", "weight", "language",
+        "volume_in_series", "book_format", "dimension_length", "dimension_width", "dimension_depth", "weight", "language",
         "original_language", "subjects", "genres", "target_audience", "purchase_date",
         "store_or_vendor", "acquisition_type", "location_property", "location_shelf",
         "location_position", "condition_state", "read_status", "date_started",
@@ -260,7 +260,7 @@ pub async fn create_book(
             authors, translators, illustrators, publisher, publish_date, original_publish_date,
             edition, edition_number, printing_number, original_edition, is_first_edition, collection_name,
             volume_in_collection, series_name, volume_in_series, book_format, page_count,
-            dimensions, weight, language, original_language, subjects, genres, target_audience,
+            dimension_length, dimension_width, dimension_depth, weight, language, original_language, subjects, genres, target_audience,
             description, table_of_contents, cover_url, purchase_date, purchase_price,
             store_or_vendor, acquisition_type, location_property, location_room, location_bookcase,
             location_shelf, location_position, condition_state, is_loaned, loaned_to,
@@ -268,7 +268,7 @@ pub async fn create_book(
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
             $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49
+            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
         )
         RETURNING id
         "#,
@@ -402,13 +402,13 @@ pub async fn update_book(
             publisher = $12, publish_date = $13, original_publish_date = $14, edition = $15, edition_number = $16,
             printing_number = $17, original_edition = $18, is_first_edition = $19, collection_name = $20,
             volume_in_collection = $21, series_name = $22, volume_in_series = $23, book_format = $24,
-            page_count = $25, dimensions = $26, weight = $27, language = $28, original_language = $29,
-            subjects = $30, genres = $31, target_audience = $32, description = $33, table_of_contents = $34,
-            cover_url = $35, purchase_date = $36, purchase_price = $37, store_or_vendor = $38,
-            acquisition_type = $39, location_property = $40, location_room = $41, location_bookcase = $42,
-            location_shelf = $43, location_position = $44, condition_state = $45, is_loaned = $46,
-            loaned_to = $47, loan_date = $48, expected_return_date = $49
-        WHERE id = $50
+            page_count = $25, dimension_length = $26, dimension_width = $27, dimension_depth = $28, weight = $29, language = $30, original_language = $31,
+            subjects = $32, genres = $33, target_audience = $34, description = $35, table_of_contents = $36,
+            cover_url = $37, purchase_date = $38, purchase_price = $39, store_or_vendor = $40,
+            acquisition_type = $41, location_property = $42, location_room = $43, location_bookcase = $44,
+            location_shelf = $45, location_position = $46, condition_state = $47, is_loaned = $48,
+            loaned_to = $49, loan_date = $50, expected_return_date = $51
+        WHERE id = $52
         "#
     )
         .bind(library_id)
