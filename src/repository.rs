@@ -263,12 +263,12 @@ pub async fn create_book(
             dimension_length, dimension_width, dimension_depth, weight, language, original_language, subjects, genres, target_audience,
             description, table_of_contents, cover_url, purchase_date, purchase_price,
             store_or_vendor, acquisition_type, location_property, location_room, location_bookcase,
-            location_shelf, location_position, condition_state, is_loaned, loaned_to,
+            location_shelf, location_position, condition_state, public_notes, is_loaned, loaned_to,
             loan_date, expected_return_date
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
             $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
+            $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52
         )
         RETURNING id
         "#,
@@ -320,6 +320,7 @@ pub async fn create_book(
         .bind(&payload.location_shelf)
         .bind(&payload.location_position)
         .bind(&payload.condition_state)
+        .bind(&payload.public_notes)
         .bind(&payload.is_loaned)
         .bind(&payload.loaned_to)
         .bind(&payload.loan_date)
@@ -338,7 +339,6 @@ pub async fn create_book(
         .bind(book_id)
         .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
         .bind(&payload.rating)
-        .bind(&payload.public_notes)
         .bind(&payload.personal_notes)
         .bind(&payload.reading_notes)
         .bind(&payload.date_started)
@@ -406,9 +406,9 @@ pub async fn update_book(
             subjects = $32, genres = $33, target_audience = $34, description = $35, table_of_contents = $36,
             cover_url = $37, purchase_date = $38, purchase_price = $39, store_or_vendor = $40,
             acquisition_type = $41, location_property = $42, location_room = $43, location_bookcase = $44,
-            location_shelf = $45, location_position = $46, condition_state = $47, is_loaned = $48,
-            loaned_to = $49, loan_date = $50, expected_return_date = $51
-        WHERE id = $52
+            location_shelf = $45, location_position = $46, condition_state = $47, public_notes = $48, is_loaned = $49,
+            loaned_to = $50, loan_date = $51, expected_return_date = $52
+        WHERE id = $53
         "#
     )
         .bind(library_id)
@@ -458,6 +458,7 @@ pub async fn update_book(
         .bind(&payload.location_shelf)
         .bind(&payload.location_position)
         .bind(&payload.condition_state)
+        .bind(&payload.public_notes)
         .bind(&payload.is_loaned)
         .bind(&payload.loaned_to)
         .bind(&payload.loan_date)
@@ -487,7 +488,6 @@ pub async fn update_book(
         .bind(book_id)
         .bind(&payload.read_status.unwrap_or_else(|| "unread".to_string()))
         .bind(&payload.rating)
-        .bind(&payload.public_notes)
         .bind(&payload.personal_notes)
         .bind(&payload.reading_notes)
         .bind(&payload.date_started)
