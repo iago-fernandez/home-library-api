@@ -22,7 +22,11 @@ services:
     container_name: library_api
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-3001}:${PORT:-3001}"
+    networks:
+      default:
+        aliases:
+          - home-library-api
     env_file:
       - .env
     volumes:
