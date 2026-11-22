@@ -1,4 +1,21 @@
+# Rust and Cargo build artifacts
 /target
-.env
 **/*.rs.bk
-.idea/uploads/
+
+# Environment variables
+.env
+*.env
+!.env.example
+
+# User uploaded media and runtime data
+uploads/
+
+# IDE and editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating system generated files
+.DS_Store
+Thumbs.db
